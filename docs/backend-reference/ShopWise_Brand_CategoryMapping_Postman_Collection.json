@@ -1,0 +1,696 @@
+{
+  "info": {
+    "name": "ShopWise - Brand & Category Mapping APIs",
+    "description": "Complete API collection for Brand Management and Category Mapping endpoints in ShopWise Backend.\n\n**Last Updated:** November 16, 2025\n**Version:** 1.0.0\n\n## Features\n- 31 API endpoints (18 Brand + 13 Category Mapping)\n- Public endpoints (no auth required)\n- Admin endpoints (require authentication)\n- Pre-configured environment variables\n- Example requests and responses\n\n## Setup\n1. Import this collection into Postman\n2. Set environment variables:\n   - `base_url`: http://localhost:5000/api/v1\n   - `admin_token`: Get from login endpoint\n3. Test endpoints in order\n\n## Authentication\nAdmin endpoints require:\n1. Login as admin: POST /auth/login\n2. Copy the access token\n3. Set `admin_token` environment variable\n4. Token will be automatically added to requests",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Brand APIs",
+      "item": [
+        {
+          "name": "Public Endpoints",
+          "item": [
+            {
+              "name": "Get All Brands",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/brands?page=1&limit=20",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands"],
+                  "query": [
+                    {"key": "page", "value": "1"},
+                    {"key": "limit", "value": "20"},
+                    {"key": "verified", "value": "true", "disabled": true},
+                    {"key": "sort_by", "value": "product_count", "disabled": true},
+                    {"key": "order", "value": "desc", "disabled": true}
+                  ]
+                },
+                "description": "Retrieve all brands with pagination and filters.\n\n**Query Parameters:**\n- `page` (number): Page number (default: 1)\n- `limit` (number): Items per page (default: 20)\n- `verified` (boolean): Filter by verified brands\n- `sort_by` (string): Sort field (name, product_count, popularity_score)\n- `order` (string): Sort order (asc, desc)"
+              },
+              "response": []
+            },
+            {
+              "name": "Search Brands",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/brands/search?q=Samsung&limit=10",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "search"],
+                  "query": [
+                    {"key": "q", "value": "Samsung"},
+                    {"key": "limit", "value": "10"}
+                  ]
+                },
+                "description": "Search brands by name using full-text search.\n\n**Query Parameters:**\n- `q` (string, required): Search query\n- `limit` (number): Maximum results (default: 10)"
+              },
+              "response": []
+            },
+            {
+              "name": "Get Top Brands",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/brands/top?sort_by=product_count&limit=10",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "top"],
+                  "query": [
+                    {"key": "sort_by", "value": "product_count"},
+                    {"key": "limit", "value": "10"}
+                  ]
+                },
+                "description": "Get top brands sorted by product count or popularity.\n\n**Query Parameters:**\n- `sort_by` (string): Sort by product_count or popularity_score\n- `limit` (number): Number of brands to return"
+              },
+              "response": []
+            },
+            {
+              "name": "Get Brand Statistics",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/brands/statistics",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "statistics"]
+                },
+                "description": "Get overall brand statistics including total count, verified count, and averages."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Brand by ID",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/brands/{{brand_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "{{brand_id}}"]
+                },
+                "description": "Get detailed information for a specific brand.\n\n**Path Parameters:**\n- `brand_id` (ObjectId, required): Brand ID"
+              },
+              "response": []
+            },
+            {
+              "name": "Get Brands by Country",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/brands/country/Pakistan",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "country", "Pakistan"]
+                },
+                "description": "Get all brands from a specific country.\n\n**Path Parameters:**\n- `country` (string, required): Country name"
+              },
+              "response": []
+            },
+            {
+              "name": "Normalize Brand Name",
+              "request": {
+                "method": "POST",
+                "header": [{"key": "Content-Type", "value": "application/json"}],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"brand_name\": \"Samsng\",\n  \"auto_learn\": true\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/brands/normalize",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "normalize"]
+                },
+                "description": "Normalize a single brand name using fuzzy matching.\n\n**Body:**\n- `brand_name` (string, required): Brand name to normalize\n- `auto_learn` (boolean): Auto-learn if confidence >= 0.9\n\n**Response:**\n- Returns matched brand with confidence score\n- Suggests creating new brand if no match found"
+              },
+              "response": []
+            },
+            {
+              "name": "Batch Normalize Brands",
+              "request": {
+                "method": "POST",
+                "header": [{"key": "Content-Type", "value": "application/json"}],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"brand_names\": [\"Samsng\", \"Appel\", \"Xiaomii\", \"Nikee\"],\n  \"auto_learn\": false\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/brands/normalize/batch",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "normalize", "batch"]
+                },
+                "description": "Normalize multiple brand names in a single request.\n\n**Body:**\n- `brand_names` (array, required): Array of brand names\n- `auto_learn` (boolean): Auto-learn high confidence matches\n\n**Response:**\n- Returns array of normalization results\n- Includes statistics (matched, needs review, avg confidence)"
+              },
+              "response": []
+            },
+            {
+              "name": "Get Normalization Statistics",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/brands/normalize/statistics",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "normalize", "statistics"]
+                },
+                "description": "Get statistics about brand normalization process."
+              },
+              "response": []
+            }
+          ],
+          "description": "Public brand endpoints - No authentication required"
+        },
+        {
+          "name": "Admin Endpoints",
+          "item": [
+            {
+              "name": "Create Brand",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {"key": "Content-Type", "value": "application/json"},
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"New Brand\",\n  \"country\": \"Pakistan\",\n  \"description\": \"A new brand description\",\n  \"is_verified\": true,\n  \"popularity_score\": 50\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/brands",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands"]
+                },
+                "description": "Create a new brand. Requires admin authentication.\n\n**Body:**\n- `name` (string, required): Brand name\n- `country` (string): Country of origin\n- `description` (string): Brand description\n- `is_verified` (boolean): Verification status\n- `popularity_score` (number): Initial popularity score"
+              },
+              "response": []
+            },
+            {
+              "name": "Update Brand",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {"key": "Content-Type", "value": "application/json"},
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"description\": \"Updated description\",\n  \"popularity_score\": 95\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/brands/{{brand_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "{{brand_id}}"]
+                },
+                "description": "Update brand details. Requires admin authentication."
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Brand",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "url": {
+                  "raw": "{{base_url}}/brands/{{brand_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "{{brand_id}}"]
+                },
+                "description": "Soft delete a brand (sets is_active to false). Requires admin authentication."
+              },
+              "response": []
+            },
+            {
+              "name": "Add Brand Alias",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {"key": "Content-Type", "value": "application/json"},
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"alias\": \"Samsng Mobile\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/brands/{{brand_id}}/aliases",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "{{brand_id}}", "aliases"]
+                },
+                "description": "Add an alias (alternative name) for a brand. Requires admin authentication.\n\n**Body:**\n- `alias` (string, required): Alternative brand name"
+              },
+              "response": []
+            },
+            {
+              "name": "Merge Brands",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {"key": "Content-Type", "value": "application/json"},
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"source_brand_id\": \"source_id_here\",\n  \"target_brand_id\": \"target_id_here\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/brands/merge",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "merge"]
+                },
+                "description": "Merge two duplicate brands. Requires admin authentication.\n\n**Body:**\n- `source_brand_id` (ObjectId, required): Brand to merge from\n- `target_brand_id` (ObjectId, required): Brand to merge into\n\n**Result:**\n- Source brand aliases added to target\n- Source brand deactivated\n- Products updated to use target brand"
+              },
+              "response": []
+            },
+            {
+              "name": "Learn from Correction",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {"key": "Content-Type", "value": "application/json"},
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"original_name\": \"Samsng\",\n  \"corrected_brand_id\": \"brand_id_here\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/brands/learn",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "learn"]
+                },
+                "description": "Learn from manual brand corrections to improve future matching. Requires admin authentication.\n\n**Body:**\n- `original_name` (string, required): Original brand name\n- `corrected_brand_id` (ObjectId, required): Correct brand ID"
+              },
+              "response": []
+            },
+            {
+              "name": "Get Brands Needing Review",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "url": {
+                  "raw": "{{base_url}}/brands/review?limit=20",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "review"],
+                  "query": [{"key": "limit", "value": "20"}]
+                },
+                "description": "Get brands that need manual review. Requires admin authentication."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Brand Review Queue",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "url": {
+                  "raw": "{{base_url}}/brands/review-queue",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "review-queue"]
+                },
+                "description": "Get brand review queue with priorities. Requires admin authentication."
+              },
+              "response": []
+            },
+            {
+              "name": "Suggest Brand Merges",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "url": {
+                  "raw": "{{base_url}}/brands/suggest-merges?threshold=0.85",
+                  "host": ["{{base_url}}"],
+                  "path": ["brands", "suggest-merges"],
+                  "query": [{"key": "threshold", "value": "0.85"}]
+                },
+                "description": "Get AI suggestions for brand merges based on similarity. Requires admin authentication.\n\n**Query Parameters:**\n- `threshold` (number): Similarity threshold (0-1, default: 0.85)"
+              },
+              "response": []
+            }
+          ],
+          "description": "Admin brand endpoints - Require authentication and admin role",
+          "auth": {
+            "type": "bearer",
+            "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+          }
+        }
+      ],
+      "description": "Brand management APIs for product brand normalization"
+    },
+    {
+      "name": "Category Mapping APIs",
+      "item": [
+        {
+          "name": "Public Endpoints",
+          "item": [
+            {
+              "name": "Get All Mappings",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/category-mappings?page=1&limit=20",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings"],
+                  "query": [
+                    {"key": "page", "value": "1"},
+                    {"key": "limit", "value": "20"},
+                    {"key": "platform_id", "value": "", "disabled": true},
+                    {"key": "verified", "value": "true", "disabled": true}
+                  ]
+                },
+                "description": "Get all category mappings with pagination.\n\n**Query Parameters:**\n- `page` (number): Page number\n- `limit` (number): Items per page\n- `platform_id` (ObjectId): Filter by platform\n- `verified` (boolean): Filter by verification status"
+              },
+              "response": []
+            },
+            {
+              "name": "Get Mapping Statistics",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/statistics",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "statistics"]
+                },
+                "description": "Get category mapping statistics."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Platform Mappings",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/platform/{{platform_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "platform", "{{platform_id}}"]
+                },
+                "description": "Get all category mappings for a specific platform."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Mapping by ID",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/{{mapping_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "{{mapping_id}}"]
+                },
+                "description": "Get a specific category mapping by ID."
+              },
+              "response": []
+            },
+            {
+              "name": "Map Category",
+              "request": {
+                "method": "POST",
+                "header": [{"key": "Content-Type", "value": "application/json"}],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"platform_id\": \"platform_id_here\",\n  \"platform_category\": \"Gaming Consoles\",\n  \"auto_create\": true,\n  \"min_confidence\": 0.7\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/map",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "map"]
+                },
+                "description": "Map a platform category to our unified category system.\n\n**Body:**\n- `platform_id` (ObjectId, required): Platform ID\n- `platform_category` (string, required): Platform category name\n- `auto_create` (boolean): Auto-create mapping if match found\n- `min_confidence` (number): Minimum confidence to auto-create\n\n**Response:**\n- Returns matched category with confidence\n- Creates mapping if auto_create enabled and confidence met"
+              },
+              "response": []
+            },
+            {
+              "name": "Batch Map Categories",
+              "request": {
+                "method": "POST",
+                "header": [{"key": "Content-Type", "value": "application/json"}],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"platform_id\": \"platform_id_here\",\n  \"categories\": [\n    {\"category\": \"Smart Phones\"},\n    {\"category\": \"Laptops & Computers\"},\n    {\"category\": \"Gaming Consoles\"}\n  ],\n  \"auto_create\": true,\n  \"min_confidence\": 0.75\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/map/batch",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "map", "batch"]
+                },
+                "description": "Map multiple platform categories at once.\n\n**Body:**\n- `platform_id` (ObjectId, required): Platform ID\n- `categories` (array, required): Array of category objects\n- `auto_create` (boolean): Auto-create mappings\n- `min_confidence` (number): Minimum confidence threshold"
+              },
+              "response": []
+            }
+          ],
+          "description": "Public category mapping endpoints"
+        },
+        {
+          "name": "Admin Endpoints",
+          "item": [
+            {
+              "name": "Create Manual Mapping",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {"key": "Content-Type", "value": "application/json"},
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"platform_id\": \"platform_id_here\",\n  \"platform_category\": \"Smartphones\",\n  \"our_category_id\": \"category_id_here\",\n  \"our_subcategory_id\": \"subcategory_id_here\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/category-mappings",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings"]
+                },
+                "description": "Create a manual category mapping. Requires admin authentication."
+              },
+              "response": []
+            },
+            {
+              "name": "Update Mapping",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {"key": "Content-Type", "value": "application/json"},
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"our_subcategory_id\": \"new_subcategory_id\",\n  \"confidence\": 0.95\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/{{mapping_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "{{mapping_id}}"]
+                },
+                "description": "Update an existing mapping. Requires admin authentication."
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Mapping",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/{{mapping_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "{{mapping_id}}"]
+                },
+                "description": "Delete a category mapping. Requires admin authentication."
+              },
+              "response": []
+            },
+            {
+              "name": "Verify Mapping",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/{{mapping_id}}/verify",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "{{mapping_id}}", "verify"]
+                },
+                "description": "Verify a category mapping as accurate. Requires admin authentication."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Unmapped Categories",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/unmapped/{{platform_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "unmapped", "{{platform_id}}"]
+                },
+                "description": "Get platform categories that don't have mappings yet. Requires admin authentication."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Mappings Needing Review",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/review",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "review"]
+                },
+                "description": "Get category mappings that need manual review. Requires admin authentication."
+              },
+              "response": []
+            },
+            {
+              "name": "Learn from Correction",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {"key": "Content-Type", "value": "application/json"},
+                  {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"platform_id\": \"platform_id_here\",\n  \"platform_category\": \"Smart Phones\",\n  \"correct_category_id\": \"category_id_here\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/category-mappings/learn",
+                  "host": ["{{base_url}}"],
+                  "path": ["category-mappings", "learn"]
+                },
+                "description": "Learn from manual corrections to improve future mapping. Requires admin authentication."
+              },
+              "response": []
+            }
+          ],
+          "description": "Admin category mapping endpoints",
+          "auth": {
+            "type": "bearer",
+            "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+          }
+        }
+      ],
+      "description": "Category mapping APIs for platform category normalization"
+    },
+    {
+      "name": "Product APIs (With Brand Filter)",
+      "item": [
+        {
+          "name": "Get Products with Brand Filter",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products?brand=Samsung&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["products"],
+              "query": [
+                {"key": "brand", "value": "Samsung"},
+                {"key": "brand_id", "value": "", "disabled": true},
+                {"key": "limit", "value": "10"},
+                {"key": "category", "value": "", "disabled": true},
+                {"key": "min_price", "value": "", "disabled": true},
+                {"key": "max_price", "value": "", "disabled": true}
+              ]
+            },
+            "description": "Get products filtered by brand name or brand ID.\n\n**New Query Parameters:**\n- `brand` (string): Filter by brand name (text match)\n- `brand_id` (ObjectId): Filter by brand ID (exact match)"
+          },
+          "response": []
+        },
+        {
+          "name": "Search Products with Brand Filter",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/search?q=phone&brand=Samsung",
+              "host": ["{{base_url}}"],
+              "path": ["products", "search"],
+              "query": [
+                {"key": "q", "value": "phone"},
+                {"key": "brand", "value": "Samsung"},
+                {"key": "brand_id", "value": "", "disabled": true}
+              ]
+            },
+            "description": "Search products with brand filter.\n\n**Enhanced with:**\n- `brand` (string): Filter results by brand name\n- `brand_id` (ObjectId): Filter results by brand ID"
+          },
+          "response": []
+        }
+      ],
+      "description": "Product APIs enhanced with brand filtering capabilities"
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Admin Login",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@shopwise.pk\",\n  \"password\": \"Admin@123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Login as admin to get access token for admin endpoints.\n\n**Default Admin Credentials:**\n- Email: admin@shopwise.pk\n- Password: Admin@123\n\n**After login:**\n1. Copy the `accessToken` from response\n2. Set it as `admin_token` environment variable\n3. Use it to call admin endpoints"
+          },
+          "response": []
+        }
+      ],
+      "description": "Authentication endpoints for admin access"
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "brand_id",
+      "value": "6919ddac3af87bff38a68197",
+      "type": "string"
+    },
+    {
+      "key": "platform_id",
+      "value": "6919ddac3af87bff38a68140",
+      "type": "string"
+    },
+    {
+      "key": "mapping_id",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

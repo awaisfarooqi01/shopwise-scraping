@@ -1,0 +1,85 @@
+{
+  "name": "shopwise-scraping",
+  "version": "1.0.0",
+  "description": "Web scraping service for ShopWise AI - Extract product data from Pakistani e-commerce platforms",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "worker": "node src/jobs/workers/scraping.worker.js",
+    "test": "jest --detectOpenHandles",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:scraper": "node scripts/test-scraper.js",
+    "validate:config": "node scripts/validate-config.js",
+    "update:selectors": "node scripts/update-selectors.js",
+    "benchmark": "node scripts/benchmark-scraper.js",
+    "export": "node scripts/export-data.js",
+    "lint": "eslint src/**/*.js",
+    "lint:fix": "eslint src/**/*.js --fix",
+    "format": "prettier --write \"src/**/*.js\""
+  },
+  "keywords": [
+    "web-scraping",
+    "playwright",
+    "puppeteer",
+    "cheerio",
+    "ecommerce",
+    "price-tracking",
+    "pakistan",
+    "shopwise",
+    "data-extraction"
+  ],
+  "author": "ShopWise Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "bull": "^4.11.5",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "fake-useragent": "^1.0.1",
+    "joi": "^17.11.0",
+    "mongoose": "^8.0.0",
+    "node-cache": "^5.1.2",
+    "playwright": "^1.40.0",
+    "playwright-extra": "^4.3.6",
+    "proxy-agent": "^6.3.1",
+    "puppeteer": "^21.6.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "redis": "^4.6.0",
+    "robots-parser": "^3.0.1",
+    "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^4.7.1"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.8",
+    "eslint": "^8.53.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.29.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1",
+    "prettier": "^3.1.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coveragePathIgnorePatterns": [
+      "/node_modules/",
+      "/tests/"
+    ],
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/index.js",
+      "!src/config/**"
+    ],
+    "testTimeout": 30000
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "compilerOptions": {
+    // Enable type checking for JavaScript files
+    "checkJs": false,
+    "allowJs": true,
+    
+    // Module resolution
+    "module": "commonjs",
+    "target": "ES2022",
+    "moduleResolution": "node",
+    
+    // Paths
+    "baseUrl": ".",
+    "paths": {
+      "@config/*": ["src/config/*"],
+      "@utils/*": ["src/utils/*"],
+      "@scrapers/*": ["src/scrapers/*"],
+      "@services/*": ["src/services/*"],
+      "@models/*": ["src/models/*"],
+      "@jobs/*": ["src/jobs/*"],
+      "@pipeline/*": ["src/pipeline/*"]
+    },
+    
+    // Type checking
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "strictFunctionTypes": false,
+    
+    // Additional checks
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noImplicitReturns": false,
+    "noFallthroughCasesInSwitch": true,
+    
+    // Module & imports
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    
+    // Output
+    "noEmit": true,
+    "skipLibCheck": true,
+    
+    // Advanced
+    "forceConsistentCasingInFileNames": true,
+    
+    // JSDoc support for better IntelliSense
+    "maxNodeModuleJsDepth": 1
+  },
+  "include": [
+    "src/**/*",
+    "tests/**/*",
+    "scripts/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "logs",
+    "dist",
+    "coverage"
+  ],
+  "typeAcquisition": {
+    "enable": true,
+    "include": [
+      "node",
+      "jest",
+      "cheerio",
+      "axios",
+      "mongoose",
+      "redis",
+      "bull"
+    ]
+  }
+}
