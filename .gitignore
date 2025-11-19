@@ -140,6 +140,10 @@ tmp/
 temp/
 *.tmp
 
+# Scraper data
+data/
+temp/
+
 # Build outputs
 build/
 dist/
@@ -153,3 +157,8 @@ dist/
 *.bak
 *.old
 *.orig
+
+# Database backups
+backups/
+*.dump
+*.gz
