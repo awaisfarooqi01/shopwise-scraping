@@ -1426,38 +1426,30 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       // Convert ObjectIds to strings for page.evaluate
       const productIdStr = productId.toString();
       const platformIdStr = this.platform._id.toString();
-      const platformName = this.platform.name;      logger.info(`   🔑 Product ID: ${productIdStr}, Platform ID: ${platformIdStr}, Platform: ${platformName}`);      // Enable console messages from the page
-      this.page.on('console', msg => {
-        const text = msg.text();
-        if (text && !text.includes('Download the React DevTools')) {
-          logger.info(`   🌐 Browser console: ${text}`);
-        }
-      });
+      const platformName = this.platform.name;
       
-      let result;
+      logger.info(`   🔑 IDs: product=${productIdStr.substring(0,8)}..., platform=${platformIdStr.substring(0,8)}...`);
+        // Extract reviews using simplified object structure to avoid serialization issues
+      let reviews;
       try {
-        result = await this.page.evaluate((prodId, platId, platName) => {
-        try {
+        reviews = await this.page.evaluate(({ prodId, platId, platName }) => {
           const reviewElements = [];
-          
-          // PriceOye specific selectors (from actual HTML)
           const reviewBoxes = document.querySelectorAll('.review-box');
-          
-          if (reviewBoxes.length === 0) {
-            console.log('No review boxes found');
-            return { success: true, reviews: [] };
-          }
           
           console.log(`Found ${reviewBoxes.length} review boxes`);
           
+          if (reviewBoxes.length === 0) {
+            return [];
+          }
+          
           reviewBoxes.forEach(box => {
             try {
-              // Extract reviewer name (note the typo "reivew" in PriceOye HTML)
+              // Extract reviewer name
               const nameEl = box.querySelector('.user-reivew-name h5') || 
                             box.querySelector('.user-reivew-name');
               const reviewerName = nameEl ? nameEl.textContent.trim() : 'Anonymous';
               
-              // Extract rating - count filled stars (contains "stars.svg")
+              // Extract rating - count filled stars
               const starElements = box.querySelectorAll('.rating-star img');
               let rating = 0;
               starElements.forEach(star => {
@@ -1501,172 +1493,72 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
                 }
               });
               
+              console.log(`Review: ${reviewerName}, rating: ${rating}`);
+              
               // Only add if we have a valid rating and name
               if (rating >= 1 && rating <= 5 && reviewerName && reviewerName !== 'Anonymous') {
                 reviewElements.push({
-                  product_id: prodId,
-                  platform_id: platId,
+                  product_id_str: prodId,
+                  platform_id_str: platId,
                   platform_name: platName,
                   reviewer_name: reviewerName,
                   rating: rating,
                   text: text,
                   review_date: reviewDate,
-                  helpful_votes: 0, // PriceOye doesn't show helpful votes
+                  helpful_votes: 0,
                   verified_purchase: verifiedPurchase,
                   images: images,
-                  sentiment_analysis: {
-                    needs_analysis: true
-                  },
                   is_active: true
                 });
+              } else {
+                console.log(`Skipped: ${reviewerName} (rating: ${rating})`);
               }
             } catch (err) {
               console.error('Error parsing review box:', err.message);
             }
           });
           
-          return { success: true, reviews: reviewElements };
-        } catch (error) {
-          return { success: false, error: error.message, stack: error.stack };
-        }
-      }, productIdStr, platformIdStr, platformName);
+          console.log(`Returning ${reviewElements.length} reviews`);
+          return reviewElements;
+        }, { prodId: productIdStr, platId: platformIdStr, platName: platformName });
+        
+        logger.info(`   📥 Received ${reviews ? reviews.length : 0} reviews from page.evaluate`);
+        
       } catch (evalError) {
-        logger.error(`   ❌ page.evaluate threw error: ${evalError.message}`);
-        throw evalError;
-      }
-          const reviewElements = [];
-          
-          // PriceOye specific selectors (from actual HTML)
-          const reviewBoxes = document.querySelectorAll('.review-box');
-          
-          if (reviewBoxes.length === 0) {
-            console.log('No review boxes found');
-            return { success: true, reviews: [] };
-          }
-          
-          console.log(`Found ${reviewBoxes.length} review boxes`);
-          
-          reviewBoxes.forEach(box => {
-            try {
-              // Extract reviewer name (note the typo "reivew" in PriceOye HTML)
-              const nameEl = box.querySelector('.user-reivew-name h5') || 
-                            box.querySelector('.user-reivew-name');
-              const reviewerName = nameEl ? nameEl.textContent.trim() : 'Anonymous';
-              
-              // Extract rating - count filled stars (contains "stars.svg")
-              const starElements = box.querySelectorAll('.rating-star img');
-              let rating = 0;
-              starElements.forEach(star => {
-                const src = star.getAttribute('src') || '';
-                if (src.includes('stars.svg') && !src.includes('lightstar.svg')) {
-                  rating++;
-                }
-              });
-              
-              // Extract review text
-              const textEl = box.querySelector('.user-reivew-description');
-              const text = textEl ? textEl.textContent.trim() : '';
-              
-              // Extract date
-              const dateEl = box.querySelector('.review-date');
-              let reviewDate = new Date().toISOString();
-              if (dateEl) {
-                const dateStr = dateEl.textContent.trim();
-                try {
-                  const parsed = new Date(dateStr);
-                  if (!isNaN(parsed.getTime())) {
-                    reviewDate = parsed.toISOString();
-                  }
-                } catch (e) {
-                  // Use current date if parsing fails
-                }
-              }
-              
-              // Check for verified purchase
-              const verifiedEl = box.querySelector('.verified-user');
-              const verifiedPurchase = verifiedEl !== null;
-              
-              // Extract review images
-              const images = [];
-              const imgElements = box.querySelectorAll('.review-images img');
-              imgElements.forEach(img => {
-                const src = img.getAttribute('src') || img.getAttribute('data-src');
-                if (src) {
-                  const fullUrl = src.startsWith('http') ? src : `https://images.priceoye.pk${src}`;
-                  images.push(fullUrl);
-                }
-              });
-              
-              // Only add if we have a valid rating and name
-              if (rating >= 1 && rating <= 5 && reviewerName && reviewerName !== 'Anonymous') {
-                reviewElements.push({
-                  product_id: prodId,
-                  platform_id: platId,
-                  platform_name: platName,
-                  reviewer_name: reviewerName,
-                  rating: rating,
-                  text: text,
-                  review_date: reviewDate,
-                  helpful_votes: 0, // PriceOye doesn't show helpful votes
-                  verified_purchase: verifiedPurchase,
-                  images: images,
-                  sentiment_analysis: {
-                    needs_analysis: true
-                  },
-                  is_active: true
-                });
-              }
-            } catch (err) {
-              console.error('Error parsing review box:', err.message);
-            }
-          });
-            return { success: true, reviews: reviewElements };
-        } catch (error) {
-          return { success: false, error: error.message, stack: error.stack };
-        }
-      }, productIdStr, platformIdStr, platformName);
-      
-      logger.info(`   📦 Result received: ${typeof result}`);
-      if (result) {
-        logger.info(`   📦 Result.success: ${result.success}`);
-        logger.info(`   📦 Result preview: ${JSON.stringify(result).substring(0, 200)}`);
-      }
-        // Check if evaluation failed
-      if (!result || !result.success) {
-        const errorMsg = result ? result.error : 'No result returned';
-        logger.error(`   ❌ Page evaluate failed: ${errorMsg}`);
-        throw new Error(`Page evaluate failed: ${errorMsg}`);
+        logger.error(`   ❌ page.evaluate failed: ${evalError.message}`);
+        logger.error(`   Stack: ${evalError.stack}`);
+        return [];
       }
       
-      logger.info(`   ✅ Page evaluate succeeded`);
-      const reviews = result.reviews;
-      logger.info(`   📊 Reviews array length: ${reviews.length}`);
-      
-      if (reviews.length > 0) {
+      if (reviews && reviews.length > 0) {
         logger.info(`   ✅ Extracted ${reviews.length} reviews from HTML`);
         
-        // Convert review_date strings back to Date objects and platform_id to ObjectId
+        // Convert strings back to proper types OUTSIDE the page.evaluate
         const mongoose = require('mongoose');
         return reviews.map(r => ({
-          ...r,
-          product_id: new mongoose.Types.ObjectId(r.product_id),
-          platform_id: new mongoose.Types.ObjectId(r.platform_id),
-          review_date: new Date(r.review_date)
+          product_id: new mongoose.Types.ObjectId(r.product_id_str),
+          platform_id: new mongoose.Types.ObjectId(r.platform_id_str),
+          platform_name: r.platform_name,
+          reviewer_name: r.reviewer_name,
+          rating: r.rating,
+          text: r.text,
+          review_date: new Date(r.review_date),
+          helpful_votes: r.helpful_votes,
+          verified_purchase: r.verified_purchase,
+          images: r.images,
+          sentiment_analysis: {
+            needs_analysis: true
+          },
+          is_active: r.is_active
         }));
       }
-        logger.info('   ℹ️  No reviews found in HTML');
+      
+      logger.info('   ℹ️  No reviews found in HTML');
       return [];
       
     } catch (error) {
       logger.error('   ⚠️  Failed to extract reviews:', error.message);
-      logger.error('   📍 Error name:', error.name);
-      logger.error('   📚 Stack:', error.stack);
-      
-      // Take screenshot for debugging
-      if (this.config.page.screenshotOnError) {
-        await this.takeScreenshot(`extract-reviews-error-${Date.now()}`);
-      }
-      
+      logger.error('   Stack:', error.stack);
       return [];
     }
   }
