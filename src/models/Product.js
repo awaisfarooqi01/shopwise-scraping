@@ -123,8 +123,7 @@ const productSchema = new mongoose.Schema(
       default: 'PKR',
       enum: ['PKR', 'USD', 'EUR'],
     },
-    
-    // Reviews/Ratings
+      // Reviews/Ratings
     average_rating: {
       type: Number,
       default: 0,
@@ -138,8 +137,8 @@ const productSchema = new mongoose.Schema(
     },
     positive_percent: {
       type: Number,
-      default: 0,
-      min: 0,
+      default: -1, // -1 = not yet analyzed, 0-100 = percentage of positive reviews
+      min: -1,
       max: 100,
     },
     

@@ -19,7 +19,6 @@ const Product = require('../../models/Product');
 const Review = require('../../models/Review');
 const Platform = require('../../models/Platform');
 const cheerio = require('cheerio');
-const pRetry = require('p-retry');
 
 // For now, disable queue functionality - will implement later
 const PQueue = null;
@@ -104,54 +103,58 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
           
           logger.info(`   ✅ Brand normalized: ${productData.brand}`);
         }
-      }
-        // Map category - handle "Mobiles" → "Mobile Phones" mapping
+      }      // Map category using CategoryMapping collection
       if (productData.category_name) {
         logger.info(`   📂 Mapping category: ${productData.category_name}`);
         
-        // Normalize common category variations
-        let categoryToMap = productData.category_name.trim();
+        // Get platform_id as string (normalizationService expects string)
+        const platformIdStr = this.platform._id.toString();
         
-        // Handle known mappings
-        const categoryMappings = {
-          'Mobiles': 'Mobile Phones',
-          'Mobile': 'Mobile Phones',
-          'Smartphones': 'Mobile Phones',
-          'Laptops': 'Laptops',
-          'Tablets': 'Tablets',
-          'Watches': 'Smart Watches',
-          'Smartwatches': 'Smart Watches',
-          'Smart Watches': 'Smart Watches'
-        };
+        // Use the raw category name from the platform (let backend handle normalization)
+        const platformCategory = productData.category_name.trim();
         
-        if (categoryMappings[categoryToMap]) {
-          categoryToMap = categoryMappings[categoryToMap];
-          logger.info(`   🔄 Category normalized: ${productData.category_name} → ${categoryToMap}`);
-        }
-        
-        const mappedCategory = await normalizationService.mapCategory(categoryToMap);
-        
-        if (mappedCategory && mappedCategory.category_id) {
+        // Call mapCategory with platform_id (will lookup CategoryMapping collection)
+        const mappedCategory = await normalizationService.mapCategory(
+          platformIdStr,
+          platformCategory,
+          false // Don't auto-create, use manual mappings only
+        );          if (mappedCategory && mappedCategory.category_id) {
+          // Successfully mapped via CategoryMapping collection
           productData.category_id = mappedCategory.category_id;
-          productData.category_name = mappedCategory.category_name; // Use the mapped name
+          productData.category_name = mappedCategory.category_name || productData.category_name;
+          productData.subcategory_id = mappedCategory.subcategory_id;
+          productData.subcategory_name = mappedCategory.subcategory_name || '';
+          
+          // Store original platform category for reference
           productData.platform_metadata = productData.platform_metadata || {};
           productData.platform_metadata.original_category = productData.category_name;
-          
-          // Handle subcategory if present
-          if (mappedCategory.subcategory_id) {
-            productData.subcategory_id = mappedCategory.subcategory_id;
-            productData.subcategory_name = mappedCategory.subcategory_name;
-            productData.platform_metadata.original_subcategory = productData.subcategory_name;
-          }
-          
+            // Store mapping metadata
           productData.mapping_metadata = productData.mapping_metadata || {};
-          productData.mapping_metadata.category_confidence = mappedCategory.confidence || 0.9;
-          productData.mapping_metadata.category_source = mappedCategory.source || 'auto';
+          productData.mapping_metadata.category_confidence = mappedCategory.confidence || 1.0;
           
-          logger.info(`   ✅ Category mapped: ${mappedCategory.category_name}`);
-          if (mappedCategory.subcategory_name) {
-            logger.info(`   ✅ Subcategory mapped: ${mappedCategory.subcategory_name}`);
-          }
+          // Map backend source values to Product model enum values
+          const sourceMapping = {
+            'existing_mapping': 'database_verified',
+            'auto_created': 'auto',
+            'inferred': 'fuzzy',
+            'manual': 'manual',
+            'rule': 'rule',
+            'no_match': 'auto'
+          };
+          productData.mapping_metadata.category_source = sourceMapping[mappedCategory.source] || 'auto';
+          productData.mapping_metadata.needs_review = mappedCategory.needs_review || false;
+          
+          logger.info(`   ✅ Category mapped via CategoryMapping collection`);
+          logger.info(`   ✅ Parent: Electronics (${mappedCategory.category_id})`);
+          logger.info(`   ✅ Subcategory: Mobile Phones (${mappedCategory.subcategory_id})`);
+        } else {
+          // No mapping found - log warning
+          logger.warn(`   ⚠️  No CategoryMapping found for "${platformCategory}" on platform ${platformIdStr}`);
+          logger.warn(`   💡 Create mapping via: POST /api/v1/category-mappings`);
+          
+          // Keep original category name but no IDs
+          productData.category_id = null;
+          productData.subcategory_id = null;
         }
       }
         // Validate product data
@@ -263,19 +266,13 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
         product.price = parseFloat(minPriceStr) || 0;
       }
 
-      product.currency = 'PKR';
-
-      // Reviews/Ratings
+      product.currency = 'PKR';      // Reviews/Ratings
       product.average_rating = productData.average_rating || data.average_rating || 0;
       product.review_count = productData.total_rattings_count || data.total_reviews || 0;
       
-      // Calculate positive percentage (assuming 4+ stars is positive)
-      // Use positive_percent field (matches backend schema)
-      if (product.average_rating >= 4) {
-        product.positive_percent = Math.round((product.average_rating / 5) * 100);
-      } else {
-        product.positive_percent = 0;
-      }
+      // Set positive_percent to -1 (not yet analyzed) since sentiment analysis hasn't been performed
+      // Once reviews are analyzed, a background job will update this field with actual percentage
+      product.positive_percent = -1;
 
       // Media
       product.media = {
@@ -969,17 +966,25 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       throw error;
     }
   }
-
   /**
    * Scrape brand page (listing)
-   * @param {string} brandSlug - Brand slug (e.g., 'samsung')
+   * @param {string} brandSlug - Brand slug (e.g., 'samsung') or full URL
+   * @returns {Array} Array of scraped products
    */
   async scrapeBrand(brandSlug) {
     try {
+      // Check if brandSlug is actually a full URL
+      if (brandSlug.startsWith('http://') || brandSlug.startsWith('https://')) {
+        return await this.scrapeBrandByUrl(brandSlug);
+      }
+      
       const brandConfig = this.config.brands[brandSlug];
       
       if (!brandConfig) {
-        throw new Error(`Brand not configured: ${brandSlug}`);
+        // If not configured, try to construct URL directly
+        logger.warn(`Brand ${brandSlug} not configured, attempting direct URL construction...`);
+        const brandUrl = `${this.baseUrl}/mobiles/${brandSlug}`;
+        return await this.scrapeBrandByUrl(brandUrl, brandSlug);
       }
       
       if (!brandConfig.enabled) {
@@ -988,39 +993,53 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       }
       
       const brandUrl = `${this.baseUrl}${brandConfig.url}`;
-      logger.info(`\n🏷️  Scraping brand: ${brandSlug}`);
+      return await this.scrapeBrandByUrl(brandUrl, brandSlug);
+      
+    } catch (error) {
+      logger.error(`Failed to scrape brand ${brandSlug}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Scrape brand page by direct URL
+   * @param {string} brandUrl - Full brand URL (e.g., 'https://priceoye.pk/mobiles/nothing')
+   * @param {string} brandName - Optional brand name for logging
+   * @returns {Array} Array of scraped products
+   */
+  async scrapeBrandByUrl(brandUrl, brandName = null) {
+    try {
+      // Extract brand name from URL if not provided
+      if (!brandName) {
+        const match = brandUrl.match(/\/mobiles\/([a-z-]+)/i);
+        brandName = match ? match[1] : 'unknown';
+      }
+      
+      logger.info(`\n🏷️  Scraping brand: ${brandName}`);
       logger.info(`📍 URL: ${brandUrl}`);
       
       // Get all product URLs from listing
       const productUrls = await this.scrapeListingPages(brandUrl);
       
-      logger.info(`\n📊 Found ${productUrls.length} products for ${brandSlug}`);
+      logger.info(`\n📊 Found ${productUrls.length} products for ${brandName}`);
       
       // Scrape each product
-      const products = [];
-      
-      for (let i = 0; i < productUrls.length; i++) {
+      const products = [];      for (let i = 0; i < productUrls.length; i++) {
         const url = productUrls[i];
         logger.info(`\n[${i + 1}/${productUrls.length}] Scraping: ${url}`);
         
         try {
-          const product = await pRetry(
-            () => this.scrapeProduct(url),
-            {
-              retries: this.config.retry.maxRetries,
-              factor: this.config.retry.factor,
-              minTimeout: this.config.retry.minTimeout,
-              maxTimeout: this.config.retry.maxTimeout,
-            }
-          );
+          const product = await this.scrapeProduct(url);
           
-          products.push(product);
+          if (product) {
+            products.push(product);
+          }
           
           // Random delay between products
           await this.randomDelay();
           
         } catch (error) {
-          logger.error(`Failed to scrape ${url}:`, error.message);
+          logger.error(`Failed to scrape ${url}: ${error.message}`);
           // Continue with next product
         }
       }
@@ -1030,59 +1049,70 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       return products;
       
     } catch (error) {
-      logger.error(`Failed to scrape brand ${brandSlug}:`, error);
+      logger.error(`Failed to scrape brand URL ${brandUrl}:`, error);
       throw error;
     }
   }
-
   /**
-   * Scrape listing pages (with pagination)
+   * Scrape listing pages (with infinite scroll support)
    * @param {string} listingUrl - Category or brand URL
    * @returns {Array} Product URLs
    */
   async scrapeListingPages(listingUrl) {
-    const productUrls = [];
-    let currentPage = 1;
-    let hasNextPage = true;
-    
-    while (hasNextPage) {
-      try {
-        logger.info(`\n📄 Scraping page ${currentPage}...`);
+    try {
+      logger.info(`\n📄 Scraping listing page with infinite scroll...`);
+      
+      // Navigate to listing page
+      await this.goto(listingUrl);
+      
+      // Wait for initial products to load
+      await this.page.waitForTimeout(3000);
+      
+      // Scroll down to load all products (infinite scroll)
+      logger.info(`   🔄 Scrolling to load all products...`);
+      
+      let previousProductCount = 0;
+      let unchangedCount = 0;
+      const maxUnchangedAttempts = 3;
+      
+      while (unchangedCount < maxUnchangedAttempts) {
+        // Get current product count
+        const currentProductCount = await this.page.evaluate(() => {
+          return document.querySelectorAll('a[href*="/mobiles/"]').length;
+        });
         
-        // Navigate to listing page
-        const pageUrl = currentPage === 1 ? listingUrl : `${listingUrl}?page=${currentPage}`;
-        await this.goto(pageUrl);
+        logger.info(`   📦 Products loaded: ${currentProductCount}`);
         
-        // Extract product URLs from this page
-        const urls = await this.extractProductUrlsFromPage();
-        productUrls.push(...urls);
-        
-        logger.info(`   Found ${urls.length} products on page ${currentPage}`);
-        logger.info(`   Total products so far: ${productUrls.length}`);
-        
-        // Check if there's a next page
-        hasNextPage = await this.hasNextPage();
-        
-        if (hasNextPage) {
-          currentPage++;
-          
-          // Check max pages limit
-          if (this.config.pagination.maxPages && currentPage > this.config.pagination.maxPages) {
-            logger.info(`   Reached max pages limit: ${this.config.pagination.maxPages}`);
-            hasNextPage = false;
-          }
-          
-          // Delay between pages
-          await this.page.waitForTimeout(this.config.rateLimit.paginationDelay);
+        // Check if new products were loaded
+        if (currentProductCount === previousProductCount) {
+          unchangedCount++;
+          logger.info(`   ⏸️  No new products loaded (${unchangedCount}/${maxUnchangedAttempts})`);
+        } else {
+          unchangedCount = 0;
+          previousProductCount = currentProductCount;
         }
         
-      } catch (error) {
-        logger.error(`Error scraping page ${currentPage}:`, error.message);
-        hasNextPage = false;
+        // Scroll to bottom
+        await this.page.evaluate(() => {
+          window.scrollTo(0, document.body.scrollHeight);
+        });
+        
+        // Wait for new products to load
+        await this.page.waitForTimeout(2000);
       }
+      
+      logger.info(`   ✅ All products loaded via infinite scroll`);
+      
+      // Extract all product URLs
+      const productUrls = await this.extractProductUrlsFromPage();
+      logger.info(`   📊 Total unique products found: ${productUrls.length}`);
+      
+      return productUrls;
+      
+    } catch (error) {
+      logger.error(`Error scraping listing page:`, error.message);
+      return [];
     }
-    
-    return productUrls;
   }
 
   /**
@@ -1101,9 +1131,7 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
         'a[href*="/mobiles/"]',
         '.product-card a',
         '[class*="product"] a',
-      ];
-      
-      for (const selector of linkSelectors) {
+      ];      for (const selector of linkSelectors) {
         $(selector).each((i, el) => {
           const href = $(el).attr('href');
           if (href) {
@@ -1112,8 +1140,10 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
               ? href 
               : `${this.baseUrl}${href.startsWith('/') ? href : '/' + href}`;
             
-            // Only add product URLs (not category/brand pages)
-            if (absoluteUrl.match(/\/mobiles\/[a-z]+\/[a-z0-9-]+$/)) {
+            // Only add product URLs (not category/brand/pricelist pages)
+            // Pattern: /mobiles/BRAND/PRODUCT-NAME (case insensitive, allows numbers, hyphens, underscores)
+            // EXCLUDE: /mobiles/pricelist/* (those are listing pages, not products)
+            if (absoluteUrl.match(/\/mobiles\/[a-z0-9-]+\/[a-z0-9-_]+$/i) && !absoluteUrl.includes('/pricelist/')) {
               if (!urls.includes(absoluteUrl)) {
                 urls.push(absoluteUrl);
               }
@@ -1857,37 +1887,52 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
   /**
    * Save reviews to database
    * @param {Array} reviews - Array of review objects
-   */
-  async saveReviews(reviews) {
+   */  async saveReviews(reviews) {
     try {
       logger.info(`   💾 Saving ${reviews.length} reviews to database...`);
       
-      let savedCount = 0;
-      let updatedCount = 0;
+      // Log sample data for debugging
+      if (reviews.length > 0) {
+        const sample = reviews[0];
+        logger.info(`   🔍 Sample review data:`);
+        logger.info(`      product_id: ${sample.product_id}`);
+        logger.info(`      platform_id: ${sample.platform_id}`);
+        logger.info(`      reviewer_name: "${sample.reviewer_name}"`);
+        logger.info(`      review_date: ${sample.review_date}`);
+        logger.info(`      text (first 50 chars): "${sample.text?.substring(0, 50)}..."`);
+      }
       
-      for (const reviewData of reviews) {
+      let savedCount = 0;
+      let updatedCount = 0;for (const reviewData of reviews) {
         try {
-          // Check if review already exists (by product_id, reviewer_name, and review_date)
+          // Check if review already exists using multiple criteria to prevent duplicates
+          // We check by: product_id, platform_id, reviewer_name, and either review_text or review_date
           const existing = await Review.findOne({
             product_id: reviewData.product_id,
+            platform_id: reviewData.platform_id,
             reviewer_name: reviewData.reviewer_name,
-            review_date: reviewData.review_date,
+            $or: [
+              { review_date: reviewData.review_date },
+              { text: reviewData.text } // Also check by review text for exact duplicates
+            ]
           });
           
           if (existing) {
-            // Update existing review
+            // Update existing review (in case some fields changed)
             await Review.updateOne(
               { _id: existing._id },
               { $set: reviewData }
             );
             updatedCount++;
+            logger.info(`   🔄 Updated review: ${reviewData.reviewer_name} (${existing._id})`);
           } else {
             // Create new review
-            await Review.create(reviewData);
+            const created = await Review.create(reviewData);
             savedCount++;
+            logger.info(`   ✅ Created new review: ${reviewData.reviewer_name} (${created._id})`);
           }
         } catch (error) {
-          logger.warn(`   ⚠️  Failed to save review: ${error.message}`);
+          logger.warn(`   ⚠️  Failed to save review by ${reviewData.reviewer_name}: ${error.message}`);
         }
       }
       

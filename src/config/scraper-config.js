@@ -181,6 +181,7 @@ module.exports = {
         'tecno',
         'realme',
         'honor',
+        'nothing'
       ],
     },
     smartWatches: {

@@ -35,13 +35,13 @@ async function testReviewsAndSchema() {
     console.log('✅ Scraper initialized\n');
     
     // Clean up existing test data
-    console.log('🧹 Cleaning up existing test data...');
-    await Product.deleteMany({ original_url: TEST_PRODUCT_URL });
-    await Review.deleteMany({ 
-      platform_name: 'PriceOye',
-      'platform_metadata.original_url': { $regex: /samsung-galaxy-s23-ultra/ }
-    });
-    console.log('✅ Test data cleaned\n');
+    // console.log('🧹 Cleaning up existing test data...');
+    // await Product.deleteMany({ original_url: TEST_PRODUCT_URL });
+    // await Review.deleteMany({ 
+    //   platform_name: 'PriceOye',
+    //   'platform_metadata.original_url': { $regex: /samsung-galaxy-s23-ultra/ }
+    // });
+    // console.log('✅ Test data cleaned\n');
     
     // Scrape product (includes reviews)
     console.log('🔍 Scraping product with reviews...');
