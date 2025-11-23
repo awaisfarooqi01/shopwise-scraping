@@ -9,15 +9,21 @@ const { chromium } = require('playwright');
 async function debugListingPage() {
   console.log('🔍 Debugging Nothing brand listing page...\n');
   
-  const browser = await chromium.launch({ headless: false });
+  console.log('🚀 Launching browser...');
+  const browser = await chromium.launch({ headless: true });
+  console.log('✅ Browser launched');
+  
   const page = await browser.newPage();
+  console.log('✅ New page created');
   
   try {
     const url = 'https://priceoye.pk/mobiles/nothing';
     console.log(`📍 Navigating to: ${url}\n`);
     
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+    console.log('✅ Page loaded, waiting 3 seconds...');
     await page.waitForTimeout(3000);
+    console.log('✅ Wait complete, extracting data...');
     
     // Extract all links containing /mobiles/
     const links = await page.evaluate(() => {

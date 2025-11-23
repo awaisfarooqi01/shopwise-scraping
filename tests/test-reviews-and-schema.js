@@ -13,8 +13,8 @@ const PriceOyeScraper = require('../src/scrapers/priceoye/priceoye-scraper');
 const Product = require('../src/models/Product');
 const Review = require('../src/models/Review');
 
-// Test product with reviews
-const TEST_PRODUCT_URL = 'https://priceoye.pk/mobiles/samsung/samsung-galaxy-s23-ultra';
+// Test product with reviews (using iPhone 8 Plus - discontinued but has reviews)
+const TEST_PRODUCT_URL = 'https://priceoye.pk/smart-watches/tecno/tecno-watch-3-wo3';
 
 async function testReviewsAndSchema() {
   console.log('🧪 Testing Reviews and Schema Updates\n');

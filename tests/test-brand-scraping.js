@@ -17,8 +17,8 @@ const Review = require('../src/models/Review');
 const { logger } = require('../src/utils/logger');
 
 // Test brand - Nothing (smaller catalog, faster testing)
-const TEST_BRAND_URL = 'https://priceoye.pk/mobiles/nothing';
-const TEST_BRAND_NAME = 'Nothing';
+const TEST_BRAND_URL = 'https://priceoye.pk/mobiles/';
+const TEST_BRAND_NAME = 'Apple';
 
 // Statistics tracking
 const stats = {
@@ -76,7 +76,7 @@ async function testBrandScraping() {
     
     // Scrape the entire brand
     console.log('🔍 Discovering products...\n');
-    const products = await scraper.scrapeBrand('nothing');
+    const products = await scraper.scrapeBrand('apple', 'mobiles');
     
     stats.totalProducts = products.length;
     

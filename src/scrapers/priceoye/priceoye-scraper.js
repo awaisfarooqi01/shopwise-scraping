@@ -18,10 +18,14 @@ const normalizationService = require('../../services/normalization-service');
 const Product = require('../../models/Product');
 const Review = require('../../models/Review');
 const Platform = require('../../models/Platform');
+const Category = require('../../models/Category');
 const cheerio = require('cheerio');
 
 // For now, disable queue functionality - will implement later
 const PQueue = null;
+
+// Unmapped category ID - set this in your .env or get from database
+const UNMAPPED_CATEGORY_ID = process.env.UNMAPPED_CATEGORY_ID || null;
 
 class PriceOyeScraper extends BaseScraper {  constructor() {
     super(config);
@@ -66,12 +70,11 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
   async scrapeProduct(url) {
     try {
       logger.info(`\n🔍 Scraping product: ${url}`);
-      
-      // Navigate to product page
+        // Navigate to product page
       await this.goto(url);
       
       // Extract product data from JavaScript variable (more reliable than HTML parsing)
-      const productData = await this.extractProductDataFromJS();
+      let productData = await this.extractProductDataFromJS();
       
       // If JS extraction failed, fallback to HTML parsing
       if (!productData || !productData.name) {
@@ -85,23 +88,36 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       productData.platform_id = this.platform._id;
       productData.platform_name = this.platform.name;
       productData.original_url = url;
-      
-      // Normalize brand
+        // Normalize brand (with auto-creation if not found)
       if (productData.brand) {
         logger.info(`   🏷️  Normalizing brand: ${productData.brand}`);
-        const normalizedBrand = await normalizationService.normalizeBrand(productData.brand);
-        
-        if (normalizedBrand && normalizedBrand.brand_id) {
+        const normalizedBrand = await normalizationService.normalizeBrand(
+          productData.brand,
+          this.platform._id.toString(), // platformId for logging
+          true // autoLearn = true (auto-create if not found)
+        );
+          if (normalizedBrand && normalizedBrand.brand_id) {
           productData.brand_id = normalizedBrand.brand_id;
           productData.platform_metadata = productData.platform_metadata || {};
           productData.platform_metadata.original_brand = productData.brand;
-          productData.brand = normalizedBrand.canonical_name;
+          
+          // Use canonical_name if available, otherwise keep original brand name
+          if (normalizedBrand.canonical_name) {
+            productData.brand = normalizedBrand.canonical_name;
+          }
+          // If canonical_name is missing, keep productData.brand as-is
           
           productData.mapping_metadata = productData.mapping_metadata || {};
           productData.mapping_metadata.brand_confidence = normalizedBrand.confidence || 1.0;
           productData.mapping_metadata.brand_source = normalizedBrand.source || 'exact_match';
           
-          logger.info(`   ✅ Brand normalized: ${productData.brand}`);
+          logger.info(`   ✅ Brand normalized: ${productData.brand} (ID: ${productData.brand_id})`);
+        } else {
+          // Brand normalization failed
+          logger.error(`   ❌ Brand normalization failed for: ${productData.brand}`);
+          logger.error(`   💡 Response: ${JSON.stringify(normalizedBrand)}`);
+          // Keep original brand name but no brand_id
+          productData.brand_id = null;
         }
       }      // Map category using CategoryMapping collection
       if (productData.category_name) {
@@ -113,48 +129,136 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
         // Use the raw category name from the platform (let backend handle normalization)
         const platformCategory = productData.category_name.trim();
         
-        // Call mapCategory with platform_id (will lookup CategoryMapping collection)
-        const mappedCategory = await normalizationService.mapCategory(
-          platformIdStr,
-          platformCategory,
-          false // Don't auto-create, use manual mappings only
-        );          if (mappedCategory && mappedCategory.category_id) {
-          // Successfully mapped via CategoryMapping collection
-          productData.category_id = mappedCategory.category_id;
-          productData.category_name = mappedCategory.category_name || productData.category_name;
-          productData.subcategory_id = mappedCategory.subcategory_id;
-          productData.subcategory_name = mappedCategory.subcategory_name || '';
+        try {
+          // Call mapCategory with platform_id (will lookup CategoryMapping collection)
+          const mappedCategory = await normalizationService.mapCategory(
+            platformIdStr,
+            platformCategory,
+            false // Don't auto-create, use manual mappings only
+          );
           
-          // Store original platform category for reference
-          productData.platform_metadata = productData.platform_metadata || {};
-          productData.platform_metadata.original_category = productData.category_name;
+          if (mappedCategory && mappedCategory.category_id) {
+            // Successfully mapped via CategoryMapping collection
+            productData.category_id = mappedCategory.category_id;
+            productData.category_name = mappedCategory.category_name || productData.category_name;
+            productData.subcategory_id = mappedCategory.subcategory_id;
+            productData.subcategory_name = mappedCategory.subcategory_name || '';
+            
+            // Store original platform category for reference
+            productData.platform_metadata = productData.platform_metadata || {};
+            productData.platform_metadata.original_category = platformCategory;
+              
             // Store mapping metadata
-          productData.mapping_metadata = productData.mapping_metadata || {};
-          productData.mapping_metadata.category_confidence = mappedCategory.confidence || 1.0;
-          
-          // Map backend source values to Product model enum values
-          const sourceMapping = {
-            'existing_mapping': 'database_verified',
-            'auto_created': 'auto',
-            'inferred': 'fuzzy',
-            'manual': 'manual',
-            'rule': 'rule',
-            'no_match': 'auto'
-          };
-          productData.mapping_metadata.category_source = sourceMapping[mappedCategory.source] || 'auto';
-          productData.mapping_metadata.needs_review = mappedCategory.needs_review || false;
-          
-          logger.info(`   ✅ Category mapped via CategoryMapping collection`);
-          logger.info(`   ✅ Parent: Electronics (${mappedCategory.category_id})`);
-          logger.info(`   ✅ Subcategory: Mobile Phones (${mappedCategory.subcategory_id})`);
-        } else {
-          // No mapping found - log warning
-          logger.warn(`   ⚠️  No CategoryMapping found for "${platformCategory}" on platform ${platformIdStr}`);
-          logger.warn(`   💡 Create mapping via: POST /api/v1/category-mappings`);
+            productData.mapping_metadata = productData.mapping_metadata || {};
+            productData.mapping_metadata.category_confidence = mappedCategory.confidence || 1.0;
+            
+            // Map backend source values to Product model enum values
+            const sourceMapping = {
+              'existing_mapping': 'database_verified',
+              'auto_created': 'auto',
+              'inferred': 'fuzzy',
+              'manual': 'manual',
+              'rule': 'rule',
+              'no_match': 'auto'
+            };
+            productData.mapping_metadata.category_source = sourceMapping[mappedCategory.source] || 'auto';
+            productData.mapping_metadata.needs_review = mappedCategory.needs_review || false;
+            
+            logger.info(`   ✅ Category mapped: ${mappedCategory.category_name} (${mappedCategory.category_id})`);
+            if (mappedCategory.subcategory_id) {
+              logger.info(`   ✅ Subcategory: ${mappedCategory.subcategory_name} (${mappedCategory.subcategory_id})`);
+            }          } else {            // No mapping found - AUTO-CREATE under "Unmapped" parent
+            logger.warn(`   ⚠️  No CategoryMapping found for "${platformCategory}"`);
+            
+            // Check if UNMAPPED_CATEGORY_ID is configured
+            if (!UNMAPPED_CATEGORY_ID) {
+              logger.error(`   ❌ UNMAPPED_CATEGORY_ID not configured in .env`);
+              logger.warn(`   💡 Run: node scripts/create-unmapped-category.js in backend`);
+              
+              // Fallback to null
+              productData.category_id = null;
+              productData.subcategory_id = null;
+              productData.platform_metadata = productData.platform_metadata || {};
+              productData.platform_metadata.original_category = platformCategory;
+              productData.platform_metadata.category_mapping_missing = true;
+            } else {
+              // Find legitimate category OR auto-create under "Unmapped Products"
+              logger.info(`   🔍 Searching for legitimate category in database...`);
+              
+              const result = await this.findOrAutoCreateCategory(
+                platformCategory,
+                UNMAPPED_CATEGORY_ID
+              );
+              
+              if (result && result.category) {
+                const { category, isUnmapped } = result;
+                
+                if (isUnmapped) {
+                  // Category was auto-created under "Unmapped Products"
+                  productData.category_id = UNMAPPED_CATEGORY_ID; // Parent: "Unmapped Products"
+                  productData.subcategory_id = category._id; // Child: e.g., "Smart Watches"
+                  productData.category_name = "Unmapped Products";
+                  productData.subcategory_name = platformCategory;
+                  
+                  // Store mapping metadata
+                  productData.mapping_metadata = productData.mapping_metadata || {};
+                  productData.mapping_metadata.category_confidence = 0.5;
+                  productData.mapping_metadata.category_source = 'auto';
+                  productData.mapping_metadata.needs_review = true;
+                  
+                  // Store platform metadata
+                  productData.platform_metadata = productData.platform_metadata || {};
+                  productData.platform_metadata.original_category = platformCategory;
+                  productData.platform_metadata.auto_created_category = true;
+                  
+                  logger.info(`   ✅ Auto-created under "Unmapped": ${platformCategory} (${category._id})`);
+                  logger.info(`   ⚠️  Admin review required for proper category mapping`);
+                } else {
+                  // Found legitimate category - use it directly!
+                  productData.category_id = category.parent_category_id || category._id;
+                  productData.subcategory_id = category.parent_category_id ? category._id : null;
+                  productData.category_name = category.parent_category_id 
+                    ? (await Category.findById(category.parent_category_id))?.name || category.name
+                    : category.name;
+                  productData.subcategory_name = category.parent_category_id ? category.name : null;
+                    // Store mapping metadata
+                  productData.mapping_metadata = productData.mapping_metadata || {};
+                  productData.mapping_metadata.category_confidence = 0.8; // Higher confidence for DB match
+                  productData.mapping_metadata.category_source = 'database_verified';
+                  productData.mapping_metadata.needs_review = false; // No review needed
+                  
+                  // Store platform metadata
+                  productData.platform_metadata = productData.platform_metadata || {};
+                  productData.platform_metadata.original_category = platformCategory;
+                  productData.platform_metadata.matched_existing_category = true;
+                  
+                  logger.info(`   ✅ Matched existing category: ${category.name} (${category._id})`);
+                  logger.info(`   💡 No admin review needed - using legitimate category`);
+                }
+              } else {
+                // Auto-creation failed - fallback to null
+                logger.error(`   ❌ Failed to find or create category`);
+                productData.category_id = null;
+                productData.subcategory_id = null;
+                productData.platform_metadata = productData.platform_metadata || {};
+                productData.platform_metadata.original_category = platformCategory;
+                productData.platform_metadata.category_creation_failed = true;
+              }
+            }
+          }
+        } catch (categoryError) {
+          // Category mapping failed - log error but continue
+          logger.error(`   ❌ Category mapping error for "${platformCategory}":`, categoryError.message);
+          logger.warn(`   ⚠️  Continuing without category mapping...`);
           
           // Keep original category name but no IDs
           productData.category_id = null;
           productData.subcategory_id = null;
+          
+          // Store error in metadata
+          productData.platform_metadata = productData.platform_metadata || {};
+          productData.platform_metadata.original_category = platformCategory;
+          productData.platform_metadata.category_mapping_error = categoryError.message;
         }
       }
         // Validate product data
@@ -318,14 +422,38 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
         } catch (e) {
           logger.warn('   ⚠️  Failed to parse specifications:', e.message);
         }
-      }
-
-      // Availability
+      }      // Availability
       if (selectedData) {
         const availability = selectedData.product_availability || selectedData.availability || '';
         product.availability = this.normalizeAvailability(availability);
       } else {
-        product.availability = 'unknown';
+        // No selectedData - could be discontinued or out of stock
+        // Check for discontinued badge/flag in the page
+        const isDiscontinued = await this.page.evaluate(() => {
+          // Check for discontinued badge/flag
+          const discontinuedBadge = document.querySelector('[class*="discontinued"]') ||
+                                   document.querySelector('[alt*="discontinued" i]') ||
+                                   document.querySelector('[title*="discontinued" i]');
+          
+          if (discontinuedBadge) {
+            return true;
+          }
+          
+          // Check if any text on page mentions discontinued
+          const bodyText = document.body.innerText.toLowerCase();
+          return bodyText.includes('discontinued') || bodyText.includes('no longer available');
+        });
+        
+        // Discontinued products are permanently out of stock
+        product.availability = 'out_of_stock';
+        
+        // Store discontinued status in metadata
+        product.platform_metadata = product.platform_metadata || {};
+        product.platform_metadata.discontinued = isDiscontinued;
+        
+        if (isDiscontinued) {
+          logger.info('   ⚠️  Product is DISCONTINUED');
+        }
       }
 
       // Delivery
@@ -373,7 +501,6 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       return null;
     }
   }
-
   /**
    * Extract product data from page
    * @param {object} $ - Cheerio instance
@@ -383,6 +510,13 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
     const product = {};
 
     try {
+      // Check for "PAGE NOT FOUND" error
+      const pageNotFound = $('h1.text-primary').text().trim().toUpperCase();
+      if (pageNotFound === 'PAGE NOT FOUND') {
+        logger.warn('   ⚠️  Page not found (404 error)');
+        throw new Error('Product page not found (404)');
+      }
+      
       // Basic Information
       product.name = await this.extractProductName($);
       product.description = await this.extractDescription($);
@@ -957,8 +1091,7 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       // Create new product
       const product = new Product(productData);
       await product.save();
-      
-      logger.info(`   💾 Product saved: ${product._id}`);
+        logger.info(`   💾 Product saved: ${product._id}`);
       return product;
       
     } catch (error) {
@@ -967,11 +1100,88 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
     }
   }
   /**
+   * Find or auto-create category for unmapped products
+   * LOGIC:
+   * 1. First check if a legitimate category exists with this name in the database
+   * 2. If yes: Return that legitimate category (don't create under "Unmapped")
+   * 3. If no: Create subcategory under "Unmapped Products" parent
+   * 
+   * @param {string} categoryName - Original category name from platform
+   * @param {string} unmappedParentId - Parent category ID (Unmapped Products)
+   * @returns {Promise<object>} Category object with structure: { category, isUnmapped }
+   */
+  async findOrAutoCreateCategory(categoryName, unmappedParentId) {
+    try {
+      logger.info(`   🔍 Searching for category: ${categoryName}`);
+      
+      // STEP 1: Check if a legitimate category exists in the database
+      // Search for case-insensitive match to handle variations like "Smart Watches" vs "smart watches"
+      const legitimateCategory = await Category.findOne({
+        name: { $regex: new RegExp(`^${categoryName}$`, 'i') },
+        is_active: true
+      });
+      
+      if (legitimateCategory) {
+        // Found a legitimate category - use it!
+        const isUnmappedChild = legitimateCategory.parent_category_id?.toString() === unmappedParentId;
+        
+        if (isUnmappedChild) {
+          logger.info(`   ✅ Found existing auto-created category: ${legitimateCategory._id}`);
+          return { category: legitimateCategory, isUnmapped: true };
+        } else {
+          logger.info(`   ✅ Found legitimate category: ${legitimateCategory._id}`);
+          logger.info(`   💡 Using legitimate category instead of creating under "Unmapped"`);
+          return { category: legitimateCategory, isUnmapped: false };
+        }
+      }
+      
+      // STEP 2: No legitimate category found - check if we already created one under "Unmapped"
+      const existingUnmapped = await Category.findOne({
+        name: categoryName,
+        parent_category_id: unmappedParentId
+      });
+      
+      if (existingUnmapped) {
+        logger.info(`   ✅ Found existing auto-created category under "Unmapped": ${existingUnmapped._id}`);
+        return { category: existingUnmapped, isUnmapped: true };
+      }
+      
+      // STEP 3: Create new subcategory under "Unmapped Products"
+      logger.info(`   🔧 Creating new category under "Unmapped Products"...`);
+      const newCategory = await Category.create({
+        name: categoryName,
+        parent_category_id: unmappedParentId,
+        level: 1, // Subcategory
+        path: [unmappedParentId], // Path to parent
+        icon: '📦',
+        description: `Auto-created from ${this.platform.name}: ${categoryName}`,
+        is_active: true,
+        metadata: {
+          source_platform: this.platform.name,
+          source_platform_id: this.platform._id.toString(),
+          original_name: categoryName,
+          auto_created: true,
+          created_at: new Date(),
+          needs_admin_review: true
+        }
+      });
+      
+      logger.info(`   ✅ Auto-created category: ${newCategory._id}`);
+      return { category: newCategory, isUnmapped: true };
+      
+    } catch (error) {
+      logger.error(`   ❌ Failed to find/create category: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Scrape brand page (listing)
    * @param {string} brandSlug - Brand slug (e.g., 'samsung') or full URL
+   * @param {string} categorySlug - Category slug (e.g., 'mobiles', 'smart-watches', 'tablets') - defaults to 'mobiles'
    * @returns {Array} Array of scraped products
    */
-  async scrapeBrand(brandSlug) {
+  async scrapeBrand(brandSlug, categorySlug = 'mobiles') {
     try {
       // Check if brandSlug is actually a full URL
       if (brandSlug.startsWith('http://') || brandSlug.startsWith('https://')) {
@@ -981,9 +1191,10 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       const brandConfig = this.config.brands[brandSlug];
       
       if (!brandConfig) {
-        // If not configured, try to construct URL directly
+        // If not configured, try to construct URL directly with category
         logger.warn(`Brand ${brandSlug} not configured, attempting direct URL construction...`);
-        const brandUrl = `${this.baseUrl}/mobiles/${brandSlug}`;
+        const brandUrl = `${this.baseUrl}/${categorySlug}/${brandSlug}`;
+        logger.info(`   🔗 Constructed URL: ${brandUrl}`);
         return await this.scrapeBrandByUrl(brandUrl, brandSlug);
       }
       
@@ -1052,8 +1263,7 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       logger.error(`Failed to scrape brand URL ${brandUrl}:`, error);
       throw error;
     }
-  }
-  /**
+  }  /**
    * Scrape listing pages (with infinite scroll support)
    * @param {string} listingUrl - Category or brand URL
    * @returns {Array} Product URLs
@@ -1073,26 +1283,53 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       
       let previousProductCount = 0;
       let unchangedCount = 0;
-      const maxUnchangedAttempts = 3;
+      const maxUnchangedAttempts = 5; // Increased from 3 to 5
+      let scrollAttempts = 0;
+      const maxScrollAttempts = 50; // Maximum number of scroll attempts to prevent infinite loops
       
-      while (unchangedCount < maxUnchangedAttempts) {
-        // Get current product count
+      while (unchangedCount < maxUnchangedAttempts && scrollAttempts < maxScrollAttempts) {
+        scrollAttempts++;
+        
+        // Get current actual product count (only count product links, not pricelist/category links)
         const currentProductCount = await this.page.evaluate(() => {
-          return document.querySelectorAll('a[href*="/mobiles/"]').length;
+          const allLinks = document.querySelectorAll('a[href*="/mobiles/"]');
+          let productCount = 0;
+          
+          allLinks.forEach(link => {
+            const href = link.getAttribute('href');
+            if (href) {
+              // Only count actual product URLs (brand/product pattern), exclude pricelist
+              if (href.match(/\/mobiles\/[a-z0-9-]+\/[a-z0-9-_]+$/i) && !href.includes('/pricelist/')) {
+                productCount++;
+              }
+            }
+          });
+          
+          return productCount;
         });
         
-        logger.info(`   📦 Products loaded: ${currentProductCount}`);
+        logger.info(`   📦 Scroll ${scrollAttempts}: ${currentProductCount} products found`);
         
         // Check if new products were loaded
         if (currentProductCount === previousProductCount) {
           unchangedCount++;
           logger.info(`   ⏸️  No new products loaded (${unchangedCount}/${maxUnchangedAttempts})`);
         } else {
-          unchangedCount = 0;
+          unchangedCount = 0; // Reset counter when new products are found
           previousProductCount = currentProductCount;
         }
         
-        // Scroll to bottom
+        // Scroll to bottom in multiple steps for better loading
+        await this.page.evaluate(() => {
+          // Scroll in smaller increments to trigger lazy loading
+          const scrollStep = document.body.scrollHeight / 3;
+          window.scrollBy(0, scrollStep);
+        });
+        
+        // Wait a bit for new products to load
+        await this.page.waitForTimeout(1500);
+        
+        // Scroll to absolute bottom
         await this.page.evaluate(() => {
           window.scrollTo(0, document.body.scrollHeight);
         });
@@ -1101,7 +1338,11 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
         await this.page.waitForTimeout(2000);
       }
       
-      logger.info(`   ✅ All products loaded via infinite scroll`);
+      if (scrollAttempts >= maxScrollAttempts) {
+        logger.warn(`   ⚠️  Reached maximum scroll attempts (${maxScrollAttempts})`);
+      }
+      
+      logger.info(`   ✅ Scrolling complete after ${scrollAttempts} attempts`);
       
       // Extract all product URLs
       const productUrls = await this.extractProductUrlsFromPage();
@@ -1114,7 +1355,6 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       return [];
     }
   }
-
   /**
    * Extract product URLs from current listing page
    */
@@ -1125,13 +1365,22 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       const html = await this.page.content();
       const $ = cheerio.load(html);
       
-      // Find product links
+      // Dynamically detect category from current URL
+      const currentUrl = await this.page.url();
+      const categoryMatch = currentUrl.match(/\/(mobiles|smart-watches|tablets|headphones|smart-watches|accessories|power-banks)\/[a-z0-9-]+/i);
+      const category = categoryMatch ? categoryMatch[1] : 'mobiles';
+      
+      logger.debug(`   🔍 Detected category: ${category}`);
+      
+      // Find product links - check for detected category + generic patterns
       const linkSelectors = [
         selectors.listing.productLink,
-        'a[href*="/mobiles/"]',
+        `a[href*="/${category}/"]`,
         '.product-card a',
         '[class*="product"] a',
-      ];      for (const selector of linkSelectors) {
+      ];
+
+      for (const selector of linkSelectors) {
         $(selector).each((i, el) => {
           const href = $(el).attr('href');
           if (href) {
@@ -1141,9 +1390,10 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
               : `${this.baseUrl}${href.startsWith('/') ? href : '/' + href}`;
             
             // Only add product URLs (not category/brand/pricelist pages)
-            // Pattern: /mobiles/BRAND/PRODUCT-NAME (case insensitive, allows numbers, hyphens, underscores)
-            // EXCLUDE: /mobiles/pricelist/* (those are listing pages, not products)
-            if (absoluteUrl.match(/\/mobiles\/[a-z0-9-]+\/[a-z0-9-_]+$/i) && !absoluteUrl.includes('/pricelist/')) {
+            // Pattern: /CATEGORY/BRAND/PRODUCT-NAME (case insensitive, allows numbers, hyphens, underscores)
+            // EXCLUDE: /pricelist/* (those are listing pages, not products)
+            // Match any category: mobiles, smart-watches, tablets, etc.
+            if (absoluteUrl.match(/\/(mobiles|smart-watches|tablets|headphones|accessories|power-banks)\/[a-z0-9-]+\/[a-z0-9-_]+$/i) && !absoluteUrl.includes('/pricelist/')) {
               if (!urls.includes(absoluteUrl)) {
                 urls.push(absoluteUrl);
               }
@@ -1271,13 +1521,13 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
    * @returns {string} Normalized status
    */
   normalizeAvailability(status) {
-    if (!status) return 'unknown';
+    if (!status) return 'out_of_stock'; // Default to out_of_stock if no status provided
     
     const statusLower = status.toLowerCase().trim();
     
     if (statusLower.includes('in stock') || statusLower.includes('available')) {
       return 'in_stock';
-    } else if (statusLower.includes('out of stock') || statusLower.includes('not available')) {
+    } else if (statusLower.includes('out of stock') || statusLower.includes('not available') || statusLower.includes('discontinued')) {
       return 'out_of_stock';
     } else if (statusLower.includes('limited')) {
       return 'limited';
@@ -1285,7 +1535,8 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       return 'pre_order';
     }
     
-    return 'unknown';
+    // Default to out_of_stock for any unknown status
+    return 'out_of_stock';
   }
 
   /**
@@ -1364,11 +1615,12 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       } catch (e) {
         logger.warn('   ⚠️  Review elements not found, trying to extract anyway...');
       }
-      
-      // Collect all reviews across multiple "Show More" clicks
+        // Collect all reviews across multiple "Show More" clicks
       const allReviews = [];
       let clickCount = 0;
       const maxClicks = 20; // Safeguard (20 clicks × 20 reviews = 400 reviews max)
+      
+      console.log('\n🔄 Starting review pagination loop...');
       
       while (clickCount < maxClicks) {
         // Extract reviews from current page state
@@ -1384,51 +1636,128 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
         
         allReviews.push(...newReviews);
         
+        console.log(`\n📦 Batch ${clickCount + 1}:`);
+        console.log(`   - Found ${currentReviews.length} reviews on page`);
+        console.log(`   - New unique reviews: ${newReviews.length}`);
+        console.log(`   - Total collected: ${allReviews.length}`);
         logger.info(`   📦 Batch ${clickCount + 1}: Found ${currentReviews.length} reviews (${newReviews.length} new, ${allReviews.length} total)`);
         
         // Check if "Show More" button exists and is clickable
-        const hasMoreReviews = await this.page.evaluate(() => {
+        const buttonInfo = await this.page.evaluate(() => {
           const showMoreBtn = document.querySelector('.show-more-btn button');
-          return showMoreBtn && !showMoreBtn.disabled && showMoreBtn.offsetParent !== null;
+          if (!showMoreBtn) {
+            return { exists: false, reason: 'Button not found in DOM' };
+          }
+          const isVisible = showMoreBtn.offsetParent !== null;
+          const isDisabled = showMoreBtn.disabled;
+          const buttonText = showMoreBtn.textContent.trim();
+          
+          return { 
+            exists: true, 
+            visible: isVisible,
+            disabled: isDisabled,
+            text: buttonText,
+            clickable: isVisible && !isDisabled
+          };
         });
         
-        if (!hasMoreReviews) {
+        console.log(`\n🔘 Show More Button Status:`);
+        console.log(`   - Exists: ${buttonInfo.exists}`);
+        if (buttonInfo.exists) {
+          console.log(`   - Text: "${buttonInfo.text}"`);
+          console.log(`   - Visible: ${buttonInfo.visible}`);
+          console.log(`   - Disabled: ${buttonInfo.disabled}`);
+          console.log(`   - Clickable: ${buttonInfo.clickable}`);
+        } else {
+          console.log(`   - Reason: ${buttonInfo.reason}`);
+        }
+        
+        if (!buttonInfo.clickable) {
+          console.log('\n✅ No more reviews to load - stopping pagination');
           logger.info('   ✅ No more reviews to load');
           break;
         }
-        
-        // Click "Show More" button
+          // Click "Show More" button
         try {
+          console.log('\n🖱️  Clicking "Show More" button...');
           logger.info('   🔄 Clicking "Show More" button...');
+            const previousReviewBoxCount = await this.page.evaluate(() => {
+            return document.querySelectorAll('.review-box').length;
+          });
+          
+          // Click the button
           await this.page.click('.show-more-btn button');
           
-          // Wait for new reviews to load (wait for DOM changes)
-          await this.page.waitForTimeout(2000);
+          // Wait for loader to appear
+          console.log('   ⏳ Waiting for loader to appear...');
+          await this.page.waitForTimeout(500);
           
-          // Wait for new review boxes to appear
-          await this.page.waitForFunction(
-            (previousCount) => {
-              const currentCount = document.querySelectorAll('.review-box').length;
-              return currentCount > previousCount;
-            },
-            { timeout: 5000 },
-            currentReviews.length
-          );
+          // Wait for loader to show (class changes from 'hide' to visible)
+          try {
+            await this.page.waitForFunction(
+              () => {
+                const loader = document.querySelector('#commonLoader');
+                // Loader is active when it doesn't have 'hide' class
+                return loader && !loader.classList.contains('hide');
+              },
+              { timeout: 3000 }
+            );
+            console.log('   ✅ Loader appeared (loading state)');
+          } catch (e) {
+            console.log('   ℹ️  Loader didn\'t appear or already finished');
+          }
           
-          clickCount++;
+          // Wait for loader to hide again (reviews loaded)
+          console.log('   ⏳ Waiting for loader to disappear...');
+          try {
+            await this.page.waitForFunction(
+              () => {
+                const loader = document.querySelector('#commonLoader');
+                // Loader is hidden when it has 'hide' class or doesn't exist
+                return !loader || loader.classList.contains('hide') || loader.style.display === 'none';
+              },
+              { timeout: 30000 } // Increased to 30 seconds for slow connections
+            );
+            console.log('   ✅ Loader disappeared (reviews loaded)');
+          } catch (e) {
+            console.log('   ⚠️  Loader timeout - continuing anyway');
+          }
+          
+          // Small delay to ensure DOM is updated
+          await this.page.waitForTimeout(1000);
+          
+          // Check if reviews were added
+          const newCount = await this.page.evaluate(() => {
+            return document.querySelectorAll('.review-box').length;
+          });
+          
+          console.log('   ⏳ Checking DOM update...');
+          if (newCount > previousReviewBoxCount) {
+            console.log(`   ✅ DOM updated: ${previousReviewBoxCount} → ${newCount} review boxes`);
+            clickCount++;
+          } else {
+            console.log(`   ⚠️  No new reviews loaded (still ${newCount}), stopping pagination`);
+            break;
+          }
           
         } catch (error) {
+          console.log(`\n⚠️  Failed to load more reviews: ${error.message}`);
           logger.info(`   ⚠️  Could not click "Show More" or load new reviews: ${error.message}`);
           break;
         }
-      }
-      
+      }      
       if (allReviews.length > 0) {
+        console.log(`\n✅ Review scraping complete!`);
+        console.log(`   📊 Total reviews scraped: ${allReviews.length}`);
+        console.log(`   💾 Saving to database...`);
         logger.info(`   ✅ Total reviews scraped: ${allReviews.length}`);
         
         // Save reviews to database
         await this.saveReviews(allReviews);
+        
+        console.log(`   ✅ Reviews saved successfully!`);
       } else {
+        console.log('\n⚠️  No reviews found on this page');
         logger.info('   ℹ️  No reviews found');
         
         // Take screenshot for debugging
@@ -1522,16 +1851,16 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
                   images.push(fullUrl);
                 }
               });
+                console.log(`Review: ${reviewerName}, rating: ${rating}`);
               
-              console.log(`Review: ${reviewerName}, rating: ${rating}`);
-              
-              // Only add if we have a valid rating and name
-              if (rating >= 1 && rating <= 5 && reviewerName && reviewerName !== 'Anonymous') {
+              // Only add if we have a valid rating
+              // Allow anonymous reviews (common for discontinued products)
+              if (rating >= 1 && rating <= 5) {
                 reviewElements.push({
                   product_id_str: prodId,
                   platform_id_str: platId,
                   platform_name: platName,
-                  reviewer_name: reviewerName,
+                  reviewer_name: reviewerName || 'Anonymous',
                   rating: rating,
                   text: text,
                   review_date: reviewDate,
