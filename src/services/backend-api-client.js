@@ -188,6 +188,51 @@ class BackendAPIClient {
       return [];
     }
   }
+  /**
+   * Create a new brand (auto-create by scraper)
+   * @param {Object} brandData - Brand data
+   * @param {string} brandData.name - Brand name
+   * @param {string} [brandData.country] - Brand country
+   * @param {string} [brandData.description] - Brand description
+   * @returns {Promise<Object>} Created brand
+   */  async createBrand(brandData) {
+    try {
+      const response = await this.client.post('/api/v1/brands/auto-create', {
+        name: brandData.name,
+        normalized_name: brandData.normalized_name || brandData.name.toLowerCase().trim(),
+        country: brandData.country || 'Unknown',
+        description: brandData.description || `Auto-created brand: ${brandData.name}`,
+        metadata: {
+          auto_created: true,
+          created_by: 'scraper',
+          created_at: new Date(),
+          ...brandData.metadata
+        }      });      // Extract brand from response - response structure is { success, message, data: { brand } }
+      const brand = response.data.data?.brand;
+      
+      if (!brand) {
+        logger.error('❌ Brand is null/undefined in response');
+        logger.error('Full response structure:', JSON.stringify(response.data, null, 2));
+        throw new Error('Brand object missing in API response');
+      }
+      
+      if (!brand._id) {
+        logger.error('❌ Brand._id is null/undefined');
+        logger.error('Brand keys:', Object.keys(brand));
+        throw new Error('Brand._id missing in API response');
+      }
+
+      logger.info(`✅ Brand created: ${brandData.name} (ID: ${brand._id})`);
+      return brand;
+    } catch (error) {
+      logger.error(`Failed to create brand "${brandData.name}":`, error.message);
+      if (error.response) {
+        logger.error('Response data:', error.response.data);
+        logger.error('Response status:', error.response.status);
+      }
+      throw error;
+    }
+  }
 
   // ============================================================================
   // CATEGORY MAPPING APIs

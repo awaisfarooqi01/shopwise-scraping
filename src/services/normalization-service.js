@@ -184,13 +184,54 @@ class NormalizationService {
       }
 
       this.cacheStats.brandMisses++;
-    }
-
-    // Cache miss - call backend API
+    }    // Cache miss - call backend API
     try {
       logger.debug(`Normalizing brand "${cleanBrandName}" via API...`);
 
       const result = await backendAPIClient.normalizeBrand(cleanBrandName, autoLearn);
+
+      // If no match found and autoLearn is true, create new brand
+      if (!result.brand_id && result.shouldCreate && autoLearn) {
+        logger.info(`No match found - creating new brand: "${cleanBrandName}"`);
+          try {
+          const newBrand = await backendAPIClient.createBrand({
+            name: cleanBrandName,
+            normalized_name: cleanBrandName.toLowerCase().trim(),
+            metadata: {
+              source_platform: platformId,
+              original_name: brandName,
+              auto_created: true
+            }
+          });
+
+          // Debug: Log what we got back
+          logger.debug(`Created brand object:`, JSON.stringify(newBrand, null, 2));
+          logger.info(`Brand created successfully: ${newBrand.name} (ID: ${newBrand._id})`);
+
+          const createdResult = {
+            brand_id: newBrand._id,
+            confidence: 1.0,
+            source: 'auto_created',
+            needs_review: true, // Still needs admin verification
+            original: brandName,
+            normalized: newBrand.name,
+            canonical_name: newBrand.name
+          };
+
+          // Cache the newly created brand
+          if (this.cacheEnabled) {
+            const cacheKey = this.getBrandCacheKey(cleanBrandName);
+            this.brandCache.set(cacheKey, createdResult);
+            logger.debug(`Cached newly created brand "${cleanBrandName}"`);
+          }
+
+          return createdResult;
+        } catch (createError) {
+          logger.error(`Failed to create brand "${cleanBrandName}":`, createError.message);
+          // Return the original no_match result
+          return result;
+        }
+      }
 
       // Cache the result if successful
       if (this.cacheEnabled && result.brand_id) {

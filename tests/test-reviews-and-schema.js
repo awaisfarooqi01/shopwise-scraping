@@ -14,7 +14,7 @@ const Product = require('../src/models/Product');
 const Review = require('../src/models/Review');
 
 // Test product with reviews (using iPhone 8 Plus - discontinued but has reviews)
-const TEST_PRODUCT_URL = 'https://priceoye.pk/smart-watches/tecno/tecno-watch-3-wo3';
+const TEST_PRODUCT_URL = 'https://priceoye.pk/mobiles/hmd/hmd-aura-2';
 
 async function testReviewsAndSchema() {
   console.log('🧪 Testing Reviews and Schema Updates\n');
