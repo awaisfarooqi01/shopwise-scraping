@@ -464,19 +464,56 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       // Warranty
       if (selectedData?.product_warranty) {
         product.specifications.set('Warranty', selectedData.product_warranty);
-      }
-
-      // Variants
+      }      // Variants - Extract ALL available variants from page (not just selected ones)
       product.variants = new Map();
       
-      // Color variants
-      if (productData.product_config?.selectedColor) {
-        product.variants.set('color', productData.product_config.selectedColor);
-      }
-      
-      // Storage variants
-      if (productData.product_config?.selectedSize) {
-        product.variants.set('storage', productData.product_config.selectedSize);
+      try {
+        const allVariants = await this.page.evaluate(() => {
+          const variants = { colors: [], storage: [] };
+          
+          // Extract all color variants
+          const colorElements = document.querySelectorAll('.colors li .color-name span');
+          colorElements.forEach(el => {
+            const colorName = el.textContent.trim();
+            if (colorName) {
+              variants.colors.push(colorName);
+            }
+          });
+          
+          // Extract all storage variants
+          const storageElements = document.querySelectorAll('.sizes li span:not(.sold-out-tag)');
+          storageElements.forEach(el => {
+            const storageName = el.textContent.trim();
+            // Filter out empty strings and non-storage text
+            if (storageName && storageName.match(/GB|RAM/i)) {
+              variants.storage.push(storageName);
+            }
+          });
+          
+          return variants;
+        });
+        
+        // Set variants in product data
+        if (allVariants.colors.length > 0) {
+          product.variants.set('color', allVariants.colors);
+          logger.info(`   🎨 Colors: ${allVariants.colors.join(', ')}`);
+        }
+        
+        if (allVariants.storage.length > 0) {
+          product.variants.set('storage', allVariants.storage);
+          logger.info(`   💾 Storage: ${allVariants.storage.join(', ')}`);
+        }
+      } catch (variantError) {
+        logger.warn('   ⚠️  Failed to extract variants from page:', variantError.message);
+        
+        // Fallback to JavaScript data (selected variants only)
+        if (productData.product_config?.selectedColor) {
+          product.variants.set('color', [productData.product_config.selectedColor]);
+        }
+        
+        if (productData.product_config?.selectedSize) {
+          product.variants.set('storage', [productData.product_config.selectedSize]);
+        }
       }
 
       // Platform metadata

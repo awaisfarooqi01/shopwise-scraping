@@ -14,7 +14,7 @@ const Product = require('../src/models/Product');
 const Review = require('../src/models/Review');
 
 // Test product with reviews (using iPhone 8 Plus - discontinued but has reviews)
-const TEST_PRODUCT_URL = 'https://priceoye.pk/mobiles/hmd/hmd-aura-2';
+const TEST_PRODUCT_URL = 'https://priceoye.pk/wireless-earbuds/audionic/audionic-airbud-battlebuds-pro';
 
 async function testReviewsAndSchema() {
   console.log('🧪 Testing Reviews and Schema Updates\n');
@@ -167,8 +167,7 @@ async function testReviewsAndSchema() {
     
     // Summary
     console.log('\n' + '='.repeat(60));
-    console.log('📋 SUMMARY');
-    console.log('='.repeat(60));
+    console.log('📋 SUMMARY');    console.log('='.repeat(60));
     console.log(`Product: ${product.name}`);
     console.log(`Brand: ${product.brand}`);
     console.log(`Category: ${product.category_name}`);
@@ -180,7 +179,21 @@ async function testReviewsAndSchema() {
     console.log(`Positive %: ${product.positive_percent}%`);
     console.log(`Images: ${product.media.images.length}`);
     console.log(`Specifications: ${product.specifications.size}`);
-    console.log(`Reviews Scraped: ${reviews.length}`);
+    
+    // Display variants
+    if (product.variants && product.variants.size > 0) {
+      console.log('\n🎨 Variants:');
+      if (product.variants.has('color')) {
+        const colors = product.variants.get('color');
+        console.log(`   Colors: ${Array.isArray(colors) ? colors.join(', ') : colors}`);
+      }
+      if (product.variants.has('storage')) {
+        const storage = product.variants.get('storage');
+        console.log(`   Storage: ${Array.isArray(storage) ? storage.join(', ') : storage}`);
+      }
+    }
+    
+    console.log(`\nReviews Scraped: ${reviews.length}`);
     
     console.log('\n✅ All tests completed!');
     console.log('\n💡 Next Steps:');
