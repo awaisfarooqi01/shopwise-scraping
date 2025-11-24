@@ -180,25 +180,24 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
               productData.subcategory_id = null;
               productData.platform_metadata = productData.platform_metadata || {};
               productData.platform_metadata.original_category = platformCategory;
-              productData.platform_metadata.category_mapping_missing = true;
-            } else {
-              // Find legitimate category OR auto-create under "Unmapped Products"
-              logger.info(`   🔍 Searching for legitimate category in database...`);
+              productData.platform_metadata.category_mapping_missing = true;            } else {
+              // Find or auto-create category under "Unmapped Products"
+              logger.info(`   🔍 Searching for auto-created category under "Unmapped"...`);
               
               const result = await this.findOrAutoCreateCategory(
                 platformCategory,
                 UNMAPPED_CATEGORY_ID
               );
-              
-              if (result && result.category) {
+                if (result && result.category) {
                 const { category, isUnmapped } = result;
                 
-                if (isUnmapped) {
-                  // Category was auto-created under "Unmapped Products"
-                  productData.category_id = UNMAPPED_CATEGORY_ID; // Parent: "Unmapped Products"
-                  productData.subcategory_id = category._id; // Child: e.g., "Smart Watches"
+                // Should always be unmapped since we're explicitly creating under "Unmapped Products"
+                if (isUnmapped || category.parent_category_id?.toString() === UNMAPPED_CATEGORY_ID) {
+                  // Properly structured: "Unmapped Products" (parent) → "Smart Watches" (child)
+                  productData.category_id = UNMAPPED_CATEGORY_ID;
+                  productData.subcategory_id = category._id;
                   productData.category_name = "Unmapped Products";
-                  productData.subcategory_name = platformCategory;
+                  productData.subcategory_name = category.name;
                   
                   // Store mapping metadata
                   productData.mapping_metadata = productData.mapping_metadata || {};
@@ -211,7 +210,7 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
                   productData.platform_metadata.original_category = platformCategory;
                   productData.platform_metadata.auto_created_category = true;
                   
-                  logger.info(`   ✅ Auto-created under "Unmapped": ${platformCategory} (${category._id})`);
+                  logger.info(`   ✅ Using unmapped category: ${category.name} (${category._id})`);
                   logger.info(`   ⚠️  Admin review required for proper category mapping`);
                 } else {
                   // Found legitimate category - use it directly!
@@ -376,13 +375,13 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
       
       // Set positive_percent to -1 (not yet analyzed) since sentiment analysis hasn't been performed
       // Once reviews are analyzed, a background job will update this field with actual percentage
-      product.positive_percent = -1;
-
-      // Media
+      product.positive_percent = -1;      // Media
       product.media = {
         images: [],
         videos: []
-      };      // Extract images from color variants
+      };
+
+      // Extract images from color variants
       if (productData.product_color_images) {
         const colorImages = Object.values(productData.product_color_images);
         colorImages.forEach(colorData => {
@@ -400,6 +399,38 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
             });
           }
         });
+      }
+
+      // Extract videos from page
+      try {
+        const videos = await this.page.evaluate(() => {
+          const videoElements = document.querySelectorAll('video source[src]');
+          const foundVideos = [];
+          
+          videoElements.forEach(source => {
+            const videoUrl = source.getAttribute('src');
+            if (videoUrl) {
+              // Get thumbnail from video element's poster or nearby image
+              const videoEl = source.closest('video');
+              const thumbnail = videoEl?.getAttribute('poster') || '';
+              
+              foundVideos.push({
+                url: videoUrl.startsWith('http') ? videoUrl : `https://images.priceoye.pk${videoUrl}`,
+                thumbnail: thumbnail.startsWith('http') ? thumbnail : (thumbnail ? `https://images.priceoye.pk${thumbnail}` : ''),
+                duration: 0 // Duration not available from static HTML
+              });
+            }
+          });
+          
+          return foundVideos;
+        });
+        
+        if (videos.length > 0) {
+          product.media.videos = videos;
+          logger.info(`   🎥 Videos: ${videos.length} items`);
+        }
+      } catch (videoError) {
+        logger.warn('   ⚠️  Failed to extract videos:', videoError.message);
       }
 
       // Specifications
@@ -1146,35 +1177,14 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
    * @param {string} categoryName - Original category name from platform
    * @param {string} unmappedParentId - Parent category ID (Unmapped Products)
    * @returns {Promise<object>} Category object with structure: { category, isUnmapped }
-   */
-  async findOrAutoCreateCategory(categoryName, unmappedParentId) {
+   */  async findOrAutoCreateCategory(categoryName, unmappedParentId) {
     try {
       logger.info(`   🔍 Searching for category: ${categoryName}`);
       
-      // STEP 1: Check if a legitimate category exists in the database
-      // Search for case-insensitive match to handle variations like "Smart Watches" vs "smart watches"
-      const legitimateCategory = await Category.findOne({
-        name: { $regex: new RegExp(`^${categoryName}$`, 'i') },
-        is_active: true
-      });
-      
-      if (legitimateCategory) {
-        // Found a legitimate category - use it!
-        const isUnmappedChild = legitimateCategory.parent_category_id?.toString() === unmappedParentId;
-        
-        if (isUnmappedChild) {
-          logger.info(`   ✅ Found existing auto-created category: ${legitimateCategory._id}`);
-          return { category: legitimateCategory, isUnmapped: true };
-        } else {
-          logger.info(`   ✅ Found legitimate category: ${legitimateCategory._id}`);
-          logger.info(`   💡 Using legitimate category instead of creating under "Unmapped"`);
-          return { category: legitimateCategory, isUnmapped: false };
-        }
-      }
-      
-      // STEP 2: No legitimate category found - check if we already created one under "Unmapped"
+      // STEP 1: Check if we already created this category under "Unmapped Products"
+      // This ensures we don't create duplicates
       const existingUnmapped = await Category.findOne({
-        name: categoryName,
+        name: { $regex: new RegExp(`^${categoryName}$`, 'i') }, // Case-insensitive
         parent_category_id: unmappedParentId
       });
       
@@ -1183,7 +1193,8 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
         return { category: existingUnmapped, isUnmapped: true };
       }
       
-      // STEP 3: Create new subcategory under "Unmapped Products"
+      // STEP 2: Create new subcategory under "Unmapped Products"
+      // This happens when no CategoryMapping exists for this platform category
       logger.info(`   🔧 Creating new category under "Unmapped Products"...`);
       const newCategory = await Category.create({
         name: categoryName,
@@ -1782,8 +1793,7 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
           logger.info(`   ⚠️  Could not click "Show More" or load new reviews: ${error.message}`);
           break;
         }
-      }      
-      if (allReviews.length > 0) {
+      }        if (allReviews.length > 0) {
         console.log(`\n✅ Review scraping complete!`);
         console.log(`   📊 Total reviews scraped: ${allReviews.length}`);
         console.log(`   💾 Saving to database...`);
@@ -1792,10 +1802,21 @@ class PriceOyeScraper extends BaseScraper {  constructor() {
         // Save reviews to database
         await this.saveReviews(allReviews);
         
+        // Update product's review_count with actual scraped count
+        await Product.findByIdAndUpdate(productId, {
+          review_count: allReviews.length
+        });
+        logger.info(`   📊 Updated product review_count to ${allReviews.length}`);
+        
         console.log(`   ✅ Reviews saved successfully!`);
       } else {
         console.log('\n⚠️  No reviews found on this page');
         logger.info('   ℹ️  No reviews found');
+        
+        // Update product review_count to 0 if no reviews found
+        await Product.findByIdAndUpdate(productId, {
+          review_count: 0
+        });
         
         // Take screenshot for debugging
         if (this.config.page.screenshotOnError) {
