@@ -1,12 +1,3 @@
-/**
- * Test Reviews and Schema Updates
- * Tests all 4 fixes:
- * 1. Clean HTML from description
- * 2. Match exact database schema (positive_percent, subcategory fields, sale_duration_days)
- * 3. Scrape product reviews
- * 4. Handle review pagination
- */
-
 require('dotenv').config();
 const mongoose = require('mongoose');
 const PriceOyeScraper = require('../src/scrapers/priceoye/priceoye-scraper');
