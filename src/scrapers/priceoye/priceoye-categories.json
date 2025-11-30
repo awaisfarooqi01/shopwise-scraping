@@ -1,0 +1,253 @@
+{
+  "categories": [
+    {
+      "name": "Mobiles",
+      "base": "https://priceoye.pk/mobiles",
+      "brands": [
+        "samsung",
+        "tecno",
+        "infinix",
+        "xiaomi",
+        "vivo",
+        "realme",
+        "hmd",
+        "nokia",
+        "zte",
+        "itel",
+        "apple",
+        "xmobile"
+      ],
+      "enabled": true,
+      "priority": 1
+    },
+    {
+      "name": "Smart Watches",
+      "base": "https://priceoye.pk/smart-watches",
+      "brands": [
+        "faster",
+        "zero",
+        "assorted",
+        "dany",
+        "samsung",
+        "yolo",
+        "xiaomi",
+        "zentality",
+        "nothing",
+        "infinix",
+        "huawei",
+        "airox"
+      ],
+      "enabled": true,
+      "priority": 2
+    },
+    {
+      "name": "Wireless Earbuds",
+      "base": "https://priceoye.pk/wireless-earbuds",
+      "brands": [
+        "xiaomi",
+        "soundpeats",
+        "assorted",
+        "airox",
+        "zero",
+        "lenovo",
+        "ronin"
+      ],
+      "enabled": true,
+      "priority": 3
+    },
+    {
+      "name": "Tablets",
+      "base": "https://priceoye.pk/tablets",
+      "brands": [
+        "apple",
+        "samsung",
+        "g-tide",
+        "infinix",
+        "xiaomi",
+        "itel",
+        "tecno"
+      ],
+      "enabled": true,
+      "priority": 4
+    },
+    {
+      "name": "Laptops",
+      "base": "https://priceoye.pk/laptops",
+      "brands": [
+        "lenovo",
+        "dell",
+        "hp"
+      ],
+      "enabled": true,
+      "priority": 5
+    },
+    {
+      "name": "Power Banks",
+      "base": "https://priceoye.pk/power-banks",
+      "brands": [
+        "xiaomi",
+        "baseus",
+        "faster",
+        "joyroom"
+      ],
+      "enabled": true,
+      "priority": 6
+    },
+    {
+      "name": "Bluetooth Speakers",
+      "base": "https://priceoye.pk/bluetooth-speakers",
+      "brands": [
+        "xiaomi",
+        "audionic",
+        "faster",
+        "jbl",
+        "assorted"
+      ],
+      "enabled": true,
+      "priority": 7
+    },
+    {
+      "name": "LED TV",
+      "base": "https://priceoye.pk/led-tv",
+      "brands": [
+        "samsung",
+        "tcl",
+        "sony",
+        "ecostar"
+      ],
+      "enabled": true,
+      "priority": 8
+    },
+    {
+      "name": "AC",
+      "base": "https://priceoye.pk/ac",
+      "brands": [
+        "gree",
+        "kenwood",
+        "haier",
+        "dawlance"
+      ],
+      "enabled": true,
+      "priority": 9
+    },
+    {
+      "name": "Refrigerators",
+      "base": "https://priceoye.pk/refrigerators",
+      "brands": [
+        "dawlance",
+        "haier",
+        "pel",
+        "orient"
+      ],
+      "enabled": true,
+      "priority": 10
+    },
+    {
+      "name": "Air Purifiers",
+      "base": "https://priceoye.pk/air-purifiers",
+      "brands": [
+        "xiaomi",
+        "beurer"
+      ],
+      "enabled": true,
+      "priority": 11
+    },
+    {
+      "name": "Personal Care",
+      "base": "https://priceoye.pk/personal-cares",
+      "brands": [],
+      "enabled": true,
+      "priority": 12
+    },
+    {
+      "name": "Trimmers & Shaver",
+      "base": "https://priceoye.pk/trimmers-shaver",
+      "brands": [],
+      "enabled": true,
+      "priority": 13
+    },
+    {
+      "name": "Hair Straighteners & Curlers",
+      "base": "https://priceoye.pk/hair-straightners-curlers",
+      "brands": [],
+      "enabled": true,
+      "priority": 14
+    },
+    {
+      "name": "Tooth Brushes",
+      "base": "https://priceoye.pk/tooth-brushes",
+      "brands": [],
+      "enabled": true,
+      "priority": 15
+    },
+    {
+      "name": "Epilators",
+      "base": "https://priceoye.pk/epilators",
+      "brands": [],
+      "enabled": true,
+      "priority": 16
+    },
+    {
+      "name": "Hair Dryers",
+      "base": "https://priceoye.pk/hair-dryers",
+      "brands": [],
+      "enabled": true,
+      "priority": 17
+    },
+    {
+      "name": "Mobile Accessories",
+      "base": "https://priceoye.pk/mobiles-accessories",
+      "brands": [],
+      "enabled": true,
+      "priority": 18
+    },
+    {
+      "name": "Mobile Cables",
+      "base": "https://priceoye.pk/mobile-cables",
+      "brands": [],
+      "enabled": true,
+      "priority": 19
+    },
+    {
+      "name": "Wireless Chargers",
+      "base": "https://priceoye.pk/wireless-chargers",
+      "brands": [],
+      "enabled": true,
+      "priority": 20
+    },
+    {
+      "name": "Mobile Chargers",
+      "base": "https://priceoye.pk/mobile-chargers",
+      "brands": [],
+      "enabled": true,
+      "priority": 21
+    },
+    {
+      "name": "Mobile Car Chargers",
+      "base": "https://priceoye.pk/mobile-car-chargers",
+      "brands": [],
+      "enabled": true,
+      "priority": 22
+    },
+    {
+      "name": "Electric Bikes",
+      "base": "https://priceoye.pk/electric-bikes",
+      "brands": [],
+      "enabled": true,
+      "priority": 23
+    },
+    {
+      "name": "Motorcycle",
+      "base": "https://priceoye.pk/motorcycle",
+      "brands": [],
+      "enabled": true,
+      "priority": 24
+    }
+  ],
+  "settings": {
+    "delayBetweenCategories": 5000,
+    "delayBetweenBrands": 3000,
+    "maxRetries": 3,
+    "continueOnError": true
+  }
+}

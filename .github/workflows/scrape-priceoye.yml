@@ -1,0 +1,207 @@
+# PriceOye Scraper - GitHub Actions Workflow
+# 
+# This workflow runs the PriceOye scraper on a schedule or manually.
+# It scrapes products from priceoye.pk and saves them to MongoDB.
+#
+# Triggers:
+# - Manual dispatch (workflow_dispatch) with options
+# - Scheduled runs (cron)
+#
+# Required Secrets:
+# - MONGODB_URI: MongoDB connection string
+#
+# Optional Secrets:
+# - PROXY_URL: Proxy server URL (if needed)
+# - SLACK_WEBHOOK_URL: For notifications
+
+name: PriceOye Scraper
+
+on:
+  # Manual trigger with inputs
+  workflow_dispatch:
+    inputs:
+      category:
+        description: 'Category to scrape (leave empty for all)'
+        required: false
+        default: ''
+        type: string
+      brand:
+        description: 'Brand to scrape (leave empty for all)'
+        required: false
+        default: ''
+        type: string
+      dry_run:
+        description: 'Dry run mode (preview only)'
+        required: false
+        default: false
+        type: boolean
+      resume:
+        description: 'Resume from last failed scrape'
+        required: false
+        default: false
+        type: boolean
+
+  # Scheduled runs - adjust as needed
+  schedule:
+    # Run full scrape every Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+    
+    # Run mobiles category every day at 3 AM UTC
+    # - cron: '0 3 * * *'
+
+# Prevent concurrent runs
+concurrency:
+  group: priceoye-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    name: Scrape PriceOye Products
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours max
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🎭 Install Playwright Browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: 📁 Create Data Directory
+        run: mkdir -p data
+
+      - name: 🔄 Restore Progress (if resuming)
+        if: ${{ github.event.inputs.resume == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: data/scrape-progress.json
+          key: scrape-progress-${{ github.run_id }}
+          restore-keys: |
+            scrape-progress-
+
+      - name: 🕷️ Run Scraper
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          NODE_ENV: production
+          # Optional proxy settings
+          # PROXY_URL: ${{ secrets.PROXY_URL }}
+        run: |
+          # Build command with options
+          CMD="node scripts/scrape-priceoye.js"
+          
+          if [ -n "${{ github.event.inputs.category }}" ]; then
+            CMD="$CMD --category '${{ github.event.inputs.category }}'"
+          fi
+          
+          if [ -n "${{ github.event.inputs.brand }}" ]; then
+            CMD="$CMD --brand '${{ github.event.inputs.brand }}'"
+          fi
+          
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+          
+          if [ "${{ github.event.inputs.resume }}" == "true" ]; then
+            CMD="$CMD --resume"
+          fi
+          
+          echo "Running: $CMD"
+          eval $CMD
+
+      - name: 💾 Save Progress (on failure)
+        if: failure()
+        uses: actions/cache/save@v4
+        with:
+          path: data/scrape-progress.json
+          key: scrape-progress-${{ github.run_id }}
+
+      - name: 📊 Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-logs-${{ github.run_number }}
+          path: |
+            logs/*.log
+            data/scrape-progress.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: 📸 Upload Screenshots (if any)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshots-${{ github.run_number }}
+          path: data/screenshots/
+          retention-days: 3
+          if-no-files-found: ignore
+
+      # Optional: Send Slack notification
+      - name: 📢 Notify Success
+        if: success() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"✅ PriceOye scraper completed successfully! Run #${{ github.run_number }}"}' \
+            $SLACK_WEBHOOK_URL
+
+      - name: 📢 Notify Failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"❌ PriceOye scraper failed! Run #${{ github.run_number }}\nCheck: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
+            $SLACK_WEBHOOK_URL
+
+
+  # Separate job for specific categories (can run in parallel)
+  scrape-mobiles:
+    name: Scrape Mobiles (Daily)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Only run on schedule, not manual dispatch
+    if: github.event_name == 'schedule'
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🎭 Install Playwright Browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: 📁 Create Data Directory
+        run: mkdir -p data
+
+      - name: 🕷️ Scrape Mobiles Category
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          NODE_ENV: production
+        run: node scripts/scrape-priceoye.js --category "Mobiles"
+
+      - name: 📊 Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobiles-scraper-logs-${{ github.run_number }}
+          path: logs/*.log
+          retention-days: 7
+          if-no-files-found: ignore

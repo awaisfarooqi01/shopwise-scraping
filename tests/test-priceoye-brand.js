@@ -69,16 +69,15 @@ async function testBrandScraping() {
     // }
     
     console.log('=' .repeat(70));
-    console.log('🏷️  STARTING BRAND SCRAPING');
+    console.log('🏷️  STARTING CATEGORY/BRAND SCRAPING');
     console.log('=' .repeat(70));
-    console.log(`📍 Brand URL: ${TEST_BRAND_URL}`);
-    console.log(`🏢 Brand Name: ${TEST_BRAND_NAME}\n`);
+    console.log(`📍 URL: ${TEST_BRAND_URL}`);
+    console.log(`🏢 Name: ${TEST_BRAND_NAME}\n`);
     
-    // Scrape the entire brand
+    // Scrape the entire category or brand
     console.log('🔍 Discovering products...\n');
     //https://priceoye.pk/bluetooth-speakers/faster
-    // const products = await scraper.scrapeBrand('qmobile', 'mobiles');
-    const products = await scraper.scrapeBrandByUrl('https://priceoye.pk/power-banks');
+    const products = await scraper.scrapeCategoryOrBrandByUrl('https://priceoye.pk/mobiles/qmobile');
     
     stats.totalProducts = products.length;
     

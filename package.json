@@ -2,7 +2,8 @@
   "name": "shopwise-scraping",
   "version": "1.0.0",
   "description": "Web scraping service for ShopWise AI - Extract product data from Pakistani e-commerce platforms",
-  "main": "src/index.js",  "scripts": {
+  "main": "src/index.js",
+  "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "worker": "node src/jobs/workers/scraping.worker.js",
@@ -13,6 +14,9 @@
     "test:reviews": "node tests/test-reviews-and-schema.js",
     "test:brand": "node tests/test-brand-scraping.js",
     "test:brand:clean": "node tests/test-brand-scraping.js --clean",
+    "scrape:priceoye": "node scripts/scrape-priceoye.js",
+    "scrape:priceoye:dry": "node scripts/scrape-priceoye.js --dry-run",
+    "scrape:priceoye:resume": "node scripts/scrape-priceoye.js --resume",
     "validate:config": "node scripts/validate-config.js",
     "update:selectors": "node scripts/update-selectors.js",
     "benchmark": "node scripts/benchmark-scraper.js",

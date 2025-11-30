@@ -14,7 +14,8 @@ const BaseScraper = require('../base-scraper');
 const selectors = require('./selectors');
 const config = require('../../config/scraper-config');
 const { logger } = require('../../utils/logger');
-const normalizationService = require('../../services/normalization-service');
+const { parsePrice } = require('../../utils/helpers');
+const databaseService = require('../../services/database-service');
 const Product = require('../../models/Product');
 const Review = require('../../models/Review');
 const Platform = require('../../models/Platform');
@@ -52,6 +53,10 @@ class PriceOyeScraper extends BaseScraper {
 
       logger.info(`✅ Platform loaded: ${this.platform.name} (ID: ${this.platform._id})`);
 
+      // Preload brand cache for better performance
+      logger.info('📦 Preloading brand cache...');
+      await databaseService.preloadBrandCache(500);
+
       // Initialize browser
       await this.initBrowser();
 
@@ -83,19 +88,19 @@ class PriceOyeScraper extends BaseScraper {
         const html = await this.page.content();
         const $ = cheerio.load(html);
         productData = await this.extractProductData($);
-      }
-
-      // Add platform and URL
+      }      // Add platform and URL
       productData.platform_id = this.platform._id;
       productData.platform_name = this.platform.name;
       productData.original_url = url;
       // Normalize brand (with auto-creation if not found)
       if (productData.brand) {
         logger.info(`   🏷️  Normalizing brand: ${productData.brand}`);
-        const normalizedBrand = await normalizationService.normalizeBrand(
+        const normalizedBrand = await databaseService.normalizeBrand(
           productData.brand,
-          this.platform._id.toString(), // platformId for logging
-          true // autoLearn = true (auto-create if not found)
+          {
+            platformId: this.platform._id.toString(),
+            autoCreate: true, // Auto-create if not found
+          }
         );
         if (normalizedBrand && normalizedBrand.brand_id) {
           productData.brand_id = normalizedBrand.brand_id;
@@ -120,26 +125,28 @@ class PriceOyeScraper extends BaseScraper {
           // Keep original brand name but no brand_id
           productData.brand_id = null;
         }
-      } // Map category using CategoryMapping collection
+      }
+      
+      // Map category using DatabaseService (direct DB access)
       if (productData.category_name) {
         logger.info(`   📂 Mapping category: ${productData.category_name}`);
 
-        // Get platform_id as string (normalizationService expects string)
-        const platformIdStr = this.platform._id.toString();
-
-        // Use the raw category name from the platform (let backend handle normalization)
+        // Use the raw category name from the platform
         const platformCategory = productData.category_name.trim();
 
         try {
           // Call mapCategory with platform_id (will lookup CategoryMapping collection)
-          const mappedCategory = await normalizationService.mapCategory(
-            platformIdStr,
+          const mappedCategory = await databaseService.mapCategory(
+            this.platform._id,
             platformCategory,
-            false // Don't auto-create, use manual mappings only
+            {
+              unmappedCategoryId: UNMAPPED_CATEGORY_ID,
+              autoCreate: true, // Auto-create under "Unmapped Products" if not found
+            }
           );
 
           if (mappedCategory && mappedCategory.category_id) {
-            // Successfully mapped via CategoryMapping collection
+            // Successfully mapped (either via existing mapping or auto-created)
             productData.category_id = mappedCategory.category_id;
             productData.category_name = mappedCategory.category_name || productData.category_name;
             productData.subcategory_id = mappedCategory.subcategory_id;
@@ -153,11 +160,11 @@ class PriceOyeScraper extends BaseScraper {
             productData.mapping_metadata = productData.mapping_metadata || {};
             productData.mapping_metadata.category_confidence = mappedCategory.confidence || 1.0;
 
-            // Map backend source values to Product model enum values
+            // Map source values to Product model enum values
             const sourceMapping = {
               existing_mapping: 'database_verified',
               auto_created: 'auto',
-              inferred: 'fuzzy',
+              fuzzy_match: 'fuzzy',
               manual: 'manual',
               rule: 'rule',
               no_match: 'auto',
@@ -175,89 +182,20 @@ class PriceOyeScraper extends BaseScraper {
               );
             }
           } else {
-            // No mapping found - AUTO-CREATE under "Unmapped" parent
-            logger.warn(`   ⚠️  No CategoryMapping found for "${platformCategory}"`);
+            // No mapping found and auto-creation failed
+            logger.warn(`   ⚠️  Category mapping failed for "${platformCategory}"`);
 
-            // Check if UNMAPPED_CATEGORY_ID is configured
             if (!UNMAPPED_CATEGORY_ID) {
               logger.error(`   ❌ UNMAPPED_CATEGORY_ID not configured in .env`);
               logger.warn(`   💡 Run: node scripts/create-unmapped-category.js in backend`);
-
-              // Fallback to null
-              productData.category_id = null;
-              productData.subcategory_id = null;
-              productData.platform_metadata = productData.platform_metadata || {};
-              productData.platform_metadata.original_category = platformCategory;
-              productData.platform_metadata.category_mapping_missing = true;
-            } else {
-              // Find or auto-create category under "Unmapped Products"
-              logger.info(`   🔍 Searching for auto-created category under "Unmapped"...`);
-
-              const result = await this.findOrAutoCreateCategory(
-                platformCategory,
-                UNMAPPED_CATEGORY_ID
-              );
-              if (result && result.category) {
-                const { category, isUnmapped } = result;
-
-                // Should always be unmapped since we're explicitly creating under "Unmapped Products"
-                if (
-                  isUnmapped ||
-                  category.parent_category_id?.toString() === UNMAPPED_CATEGORY_ID
-                ) {
-                  // Properly structured: "Unmapped Products" (parent) → "Smart Watches" (child)
-                  productData.category_id = UNMAPPED_CATEGORY_ID;
-                  productData.subcategory_id = category._id;
-                  productData.category_name = 'Unmapped Products';
-                  productData.subcategory_name = category.name;
-
-                  // Store mapping metadata
-                  productData.mapping_metadata = productData.mapping_metadata || {};
-                  productData.mapping_metadata.category_confidence = 0.5;
-                  productData.mapping_metadata.category_source = 'auto';
-                  productData.mapping_metadata.needs_review = true;
-
-                  // Store platform metadata
-                  productData.platform_metadata = productData.platform_metadata || {};
-                  productData.platform_metadata.original_category = platformCategory;
-                  productData.platform_metadata.auto_created_category = true;
-
-                  logger.info(`   ✅ Using unmapped category: ${category.name} (${category._id})`);
-                  logger.info(`   ⚠️  Admin review required for proper category mapping`);
-                } else {
-                  // Found legitimate category - use it directly!
-                  productData.category_id = category.parent_category_id || category._id;
-                  productData.subcategory_id = category.parent_category_id ? category._id : null;
-                  productData.category_name = category.parent_category_id
-                    ? (await Category.findById(category.parent_category_id))?.name || category.name
-                    : category.name;
-                  productData.subcategory_name = category.parent_category_id ? category.name : null;
-                  // Store mapping metadata
-                  productData.mapping_metadata = productData.mapping_metadata || {};
-                  productData.mapping_metadata.category_confidence = 0.8; // Higher confidence for DB match
-                  productData.mapping_metadata.category_source = 'database_verified';
-                  productData.mapping_metadata.needs_review = false; // No review needed
-
-                  // Store platform metadata
-                  productData.platform_metadata = productData.platform_metadata || {};
-                  productData.platform_metadata.original_category = platformCategory;
-                  productData.platform_metadata.matched_existing_category = true;
-
-                  logger.info(
-                    `   ✅ Matched existing category: ${category.name} (${category._id})`
-                  );
-                  logger.info(`   💡 No admin review needed - using legitimate category`);
-                }
-              } else {
-                // Auto-creation failed - fallback to null
-                logger.error(`   ❌ Failed to find or create category`);
-                productData.category_id = null;
-                productData.subcategory_id = null;
-                productData.platform_metadata = productData.platform_metadata || {};
-                productData.platform_metadata.original_category = platformCategory;
-                productData.platform_metadata.category_creation_failed = true;
-              }
             }
+
+            // Fallback to null
+            productData.category_id = null;
+            productData.subcategory_id = null;
+            productData.platform_metadata = productData.platform_metadata || {};
+            productData.platform_metadata.original_category = platformCategory;
+            productData.platform_metadata.category_mapping_failed = true;
           }
         } catch (categoryError) {
           // Category mapping failed - log error but continue
@@ -380,9 +318,19 @@ class PriceOyeScraper extends BaseScraper {
           }
         }
       } else {
-        // Fallback to min/max price
+        // Fallback to min/max price from JS data
         const minPriceStr = productData.min_price?.replace(/,/g, '') || '0';
         product.price = parseFloat(minPriceStr) || 0;
+      }
+
+      // If price is still 0, try to extract from HTML (motorcycles, bikes, etc. have different structure)
+      if (!product.price || product.price === 0) {
+        logger.info('   🔍 Price not found in JS data, checking HTML structure...');
+        const htmlPrice = await this.extractPriceFromHTML();
+        if (htmlPrice && htmlPrice > 0) {
+          product.price = htmlPrice;
+          logger.info(`   💰 Extracted price from HTML: Rs ${htmlPrice}`);
+        }
       }
 
       product.currency = 'PKR'; // Reviews/Ratings
@@ -588,7 +536,8 @@ class PriceOyeScraper extends BaseScraper {
 
       return product;
     } catch (error) {
-      logger.error('   ❌ Failed to extract data from JavaScript:', error.message);
+      logger.error('   ❌ Failed to extract data from JavaScript:', error.message || error);
+      logger.error('   Stack:', error.stack);
       return null;
     }
   }
@@ -708,10 +657,40 @@ class PriceOyeScraper extends BaseScraper {
           break;
         }
       }
-
+      
       if (priceText) {
-        pricing.price = normalizationService.parsePrice(priceText);
-      } else {
+        pricing.price = parsePrice(priceText);
+      }
+      
+      // If price not found with standard selectors, try motorcycle/bike price structure
+      // Format: <div class="po-price-content"><span class="summary-price"><span><sup>Rs</sup> 170,900</span></span></div>
+      if (!pricing.price || pricing.price === 0) {
+        // Try summary-price structure (motorcycles, bikes)
+        const summaryPrice = $('.summary-price span').first().text().trim();
+        if (summaryPrice && summaryPrice.match(/\d/)) {
+          pricing.price = parsePrice(summaryPrice);
+        }
+        
+        // Try po-price-content structure
+        if (!pricing.price || pricing.price === 0) {
+          const poPriceContent = $('.po-price-content .product-price').first().text().trim();
+          if (poPriceContent && poPriceContent.match(/\d/)) {
+            // Remove "Last Updated Price" text and extract number
+            const cleanedText = poPriceContent.replace(/Last Updated Price/gi, '').trim();
+            pricing.price = parsePrice(cleanedText);
+          }
+        }
+        
+        // Try generic product-price class
+        if (!pricing.price || pricing.price === 0) {
+          const productPrice = $('.product-price').first().text().trim();
+          if (productPrice && productPrice.match(/\d/)) {
+            pricing.price = parsePrice(productPrice);
+          }
+        }
+      }
+      
+      if (!pricing.price || pricing.price === 0) {
         throw new Error('Price not found');
       }
 
@@ -723,11 +702,11 @@ class PriceOyeScraper extends BaseScraper {
         '[class*="mrp"]',
         '.strike',
       ];
-
+      
       for (const selector of originalPriceSelectors) {
         const originalPriceText = $(selector).first().text().trim();
         if (originalPriceText && originalPriceText.match(/\d/)) {
-          const originalPrice = normalizationService.parsePrice(originalPriceText);
+          const originalPrice = parsePrice(originalPriceText);
           if (originalPrice && originalPrice > pricing.price) {
             pricing.sale_price = pricing.price;
             pricing.price = originalPrice;
@@ -764,6 +743,70 @@ class PriceOyeScraper extends BaseScraper {
     }
 
     return pricing;
+  }
+
+  /**
+   * Extract price from HTML structure (fallback for motorcycles, bikes, etc.)
+   * Handles alternative price layouts like "Last Updated Price" format
+   * @returns {Promise<number|null>} Price value or null
+   */
+  async extractPriceFromHTML() {
+    try {
+      const price = await this.page.evaluate(() => {
+        // Priority 1: Check for "Last Updated Price" structure (motorcycles, bikes)
+        // Format: <div class="po-price-content"><div class="product-price"><span class="summary-price"><span><sup>Rs</sup> 170,900</span></span></div></div>
+        const summaryPrice = document.querySelector('.summary-price span');
+        if (summaryPrice) {
+          const priceText = summaryPrice.textContent.trim();
+          // Remove "Rs" and commas, extract number
+          const numericPrice = priceText.replace(/Rs\.?/gi, '').replace(/,/g, '').trim();
+          const parsed = parseFloat(numericPrice);
+          if (!isNaN(parsed) && parsed > 0) {
+            return parsed;
+          }
+        }
+
+        // Priority 2: Check .po-price-content structure
+        const poPrice = document.querySelector('.po-price-content .product-price');
+        if (poPrice) {
+          const priceText = poPrice.textContent.trim();
+          const numericPrice = priceText.replace(/Rs\.?/gi, '').replace(/,/g, '').replace(/Last Updated Price/gi, '').trim();
+          const parsed = parseFloat(numericPrice);
+          if (!isNaN(parsed) && parsed > 0) {
+            return parsed;
+          }
+        }
+
+        // Priority 3: Generic price selectors
+        const priceSelectors = [
+          '.product-price',
+          '[class*="price"]',
+          '[itemprop="price"]',
+        ];
+
+        for (const selector of priceSelectors) {
+          const el = document.querySelector(selector);
+          if (el) {
+            const priceText = el.textContent.trim();
+            // Look for pattern like "Rs 170,900" or "170,900"
+            const match = priceText.match(/(?:Rs\.?\s*)?([0-9,]+(?:\.[0-9]+)?)/i);
+            if (match) {
+              const parsed = parseFloat(match[1].replace(/,/g, ''));
+              if (!isNaN(parsed) && parsed > 0) {
+                return parsed;
+              }
+            }
+          }
+        }
+
+        return null;
+      });
+
+      return price;
+    } catch (error) {
+      logger.warn('   ⚠️  Failed to extract price from HTML:', error.message);
+      return null;
+    }
   }
 
   /**
@@ -913,37 +956,104 @@ class PriceOyeScraper extends BaseScraper {
     const specs = new Map();
 
     try {
-      // Try table format first
-      const table = $(selectors.product.specifications.table).first();
+      // ============================================
+      // MOTORCYCLE/BIKE SPECIFIC STRUCTURES (Priority)
+      // ============================================
+      
+      // 1. Bullet specs: .bullet-specs .spec-desc with <strong>value</strong><span>label</span>
+      // Note: In this structure, VALUE comes first (in <strong>), LABEL comes second (in <span>)
+      $('.bullet-specs .spec-desc').each((i, item) => {
+        const value = $(item).find('strong').text().trim();
+        const label = $(item).find('span').text().trim();
+        if (label && value && !specs.has(label)) {
+          specs.set(label, value);
+        }
+      });
+      
+      // 2. Spec table: .p-spec-table .spec-list with <dt class="spec-term">label</dt><dd class="spec-detail">value</dd>
+      $('.p-spec-table .spec-list dt.spec-term').each((i, dt) => {
+        const label = $(dt).text().trim();
+        const dd = $(dt).next('dd.spec-detail');
+        const value = dd.text().trim();
+        if (label && value && !specs.has(label)) {
+          specs.set(label, value);
+        }
+      });
+      
+      // 3. Alternative spec table format: direct dl > dt + dd pairs
+      $('.spec-list dt, .specs-list dt').each((i, dt) => {
+        const label = $(dt).text().trim();
+        const dd = $(dt).next('dd');
+        const value = dd.text().trim();
+        if (label && value && !specs.has(label)) {
+          specs.set(label, value);
+        }
+      });
 
-      if (table.length) {
-        table.find(selectors.product.specifications.rows).each((i, row) => {
-          const key = $(row).find(selectors.product.specifications.key).text().trim();
-          const value = $(row).find(selectors.product.specifications.value).text().trim();
+      // ============================================
+      // STANDARD MOBILE/ELECTRONICS STRUCTURES
+      // ============================================
+      
+      // Try table format
+      if (specs.size === 0) {
+        const table = $(selectors.product.specifications.table).first();
 
-          if (key && value) {
-            specs.set(key, value);
-          }
-        });
+        if (table.length) {
+          table.find(selectors.product.specifications.rows).each((i, row) => {
+            const key = $(row).find(selectors.product.specifications.key).text().trim();
+            const value = $(row).find(selectors.product.specifications.value).text().trim();
+
+            if (key && value) {
+              specs.set(key, value);
+            }
+          });
+        }
       }
 
-      // Try list format
+      // Try list format (key:value in single element)
       if (specs.size === 0) {
         $(selectors.product.specifications.list)
           .first()
           .find(selectors.product.specifications.listItem)
           .each((i, item) => {
             const text = $(item).text().trim();
-            const parts = text.split(':');
+            // Split only on first colon to handle values that contain colons
+            const colonIndex = text.indexOf(':');
 
-            if (parts.length === 2) {
-              const key = parts[0].trim();
-              const value = parts[1].trim();
-              if (key && value) {
+            if (colonIndex > 0) {
+              const key = text.substring(0, colonIndex).trim();
+              const value = text.substring(colonIndex + 1).trim();
+              // Validate key doesn't look like a value (shouldn't start with numbers)
+              // and value doesn't look like a key (shouldn't be empty or too short)
+              if (key && value && !key.match(/^[\d.,]+/) && key.length < 100) {
                 specs.set(key, value);
               }
             }
           });
+      }
+
+      // ============================================
+      // FALLBACK STRUCTURES
+      // ============================================
+      
+      if (specs.size === 0) {
+        // Try .spec-box or similar structures
+        $('.spec-box, .specification-item, .spec-item').each((i, item) => {
+          const label = $(item).find('.spec-label, .label, dt, th').first().text().trim();
+          const value = $(item).find('.spec-value, .value, dd, td').first().text().trim();
+          if (label && value && !specs.has(label)) {
+            specs.set(label, value);
+          }
+        });
+        
+        // Try table rows with th/td structure
+        $('table tr').each((i, row) => {
+          const label = $(row).find('th, td:first-child').first().text().trim();
+          const value = $(row).find('td:last-child').text().trim();
+          if (label && value && label !== value && !specs.has(label)) {
+            specs.set(label, value);
+          }
+        });
       }
 
       logger.info(`   📋 Found ${specs.size} specifications`);
@@ -1259,79 +1369,53 @@ class PriceOyeScraper extends BaseScraper {
   }
 
   /**
-   * Scrape brand page (listing)
-   * @param {string} brandSlug - Brand slug (e.g., 'samsung') or full URL
-   * @param {string} categorySlug - Category slug (e.g., 'mobiles', 'smart-watches', 'tablets') - defaults to 'mobiles'
+   * Scrape category or brand page by URL
+   * Works for both category URLs (e.g., 'https://priceoye.pk/power-banks')
+   * and brand URLs (e.g., 'https://priceoye.pk/mobiles/samsung')
+   * @param {string} url - Full category or brand URL
+   * @param {string} name - Optional name for logging (auto-detected from URL if not provided)
    * @returns {Array} Array of scraped products
    */
-  async scrapeBrand(brandSlug, categorySlug = 'mobiles') {
+  async scrapeCategoryOrBrandByUrl(url, name = null) {
     try {
-      // Check if brandSlug is actually a full URL
-      if (brandSlug.startsWith('http://') || brandSlug.startsWith('https://')) {
-        return await this.scrapeBrandByUrl(brandSlug);
-      }
-
-      const brandConfig = this.config.brands[brandSlug];
-
-      if (!brandConfig) {
-        // If not configured, try to construct URL directly with category
-        logger.warn(`Brand ${brandSlug} not configured, attempting direct URL construction...`);
-        const brandUrl = `${this.baseUrl}/${categorySlug}/${brandSlug}`;
-        logger.info(`   🔗 Constructed URL: ${brandUrl}`);
-        return await this.scrapeBrandByUrl(brandUrl, brandSlug);
-      }
-
-      if (!brandConfig.enabled) {
-        logger.warn(`Brand ${brandSlug} is disabled`);
-        return [];
-      }
-
-      const brandUrl = `${this.baseUrl}${brandConfig.url}`;
-      return await this.scrapeBrandByUrl(brandUrl, brandSlug);
-    } catch (error) {
-      logger.error(`Failed to scrape brand ${brandSlug}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Scrape brand page by direct URL
-   * @param {string} brandUrl - Full brand URL (e.g., 'https://priceoye.pk/mobiles/nothing')
-   * @param {string} brandName - Optional brand name for logging
-   * @returns {Array} Array of scraped products
-   */
-  async scrapeBrandByUrl(brandUrl, brandName = null) {
-    try {
-      // Extract brand name from URL if not provided
-      if (!brandName) {
-        // Extract brand name from URL dynamically (last path segment)
-        // URL format: https://priceoye.pk/{category}/{brand}
+      // Extract name from URL if not provided
+      if (!name) {
+        // Extract name from URL dynamically (last path segment)
+        // URL formats: 
+        //   - Category: https://priceoye.pk/{category}
+        //   - Brand: https://priceoye.pk/{category}/{brand}
         try {
-          const urlParts = new URL(brandUrl);
+          const urlParts = new URL(url);
           const pathParts = urlParts.pathname.split('/').filter(p => p.length > 0);
-          // Last path segment is typically the brand
-          brandName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : 'unknown';
+          // Last path segment is the category or brand name
+          name = pathParts.length > 0 ? pathParts[pathParts.length - 1] : 'unknown';
         } catch (e) {
-          brandName = 'unknown';
+          name = 'unknown';
         }
       }
 
-      logger.info(`\n🏷️  Scraping brand: ${brandName}`);
-      logger.info(`📍 URL: ${brandUrl}`);
+      // Determine if it's a category or brand URL based on path depth
+      const urlParts = new URL(url);
+      const pathParts = urlParts.pathname.split('/').filter(p => p.length > 0);
+      const isCategory = pathParts.length === 1;
+      const type = isCategory ? 'category' : 'brand';
+
+      logger.info(`\n🏷️  Scraping ${type}: ${name}`);
+      logger.info(`📍 URL: ${url}`);
 
       // Get all product URLs from listing
-      const productUrls = await this.scrapeListingPages(brandUrl);
+      const productUrls = await this.scrapeListingPages(url);
 
-      logger.info(`\n📊 Found ${productUrls.length} products for ${brandName}`);
+      logger.info(`\n📊 Found ${productUrls.length} products for ${name}`);
 
       // Scrape each product
       const products = [];
       for (let i = 0; i < productUrls.length; i++) {
-        const url = productUrls[i];
-        logger.info(`\n[${i + 1}/${productUrls.length}] Scraping: ${url}`);
+        const productUrl = productUrls[i];
+        logger.info(`\n[${i + 1}/${productUrls.length}] Scraping: ${productUrl}`);
 
         try {
-          const product = await this.scrapeProduct(url);
+          const product = await this.scrapeProduct(productUrl);
 
           if (product) {
             products.push(product);
@@ -1340,21 +1424,21 @@ class PriceOyeScraper extends BaseScraper {
           // Random delay between products
           await this.randomDelay();
         } catch (error) {
-          logger.error(`Failed to scrape ${url}: ${error.message}`);
+          logger.error(`Failed to scrape ${productUrl}: ${error.message}`);
           // Continue with next product
         }
       }
 
       logger.info(
-        `\n✅ Brand scraping complete: ${products.length}/${productUrls.length} products scraped`
+        `\n✅ ${type} scraping complete: ${products.length}/${productUrls.length} products scraped`
       );
 
       return products;
     } catch (error) {
-      logger.error(`Failed to scrape brand URL ${brandUrl}:`, error);
+      logger.error(`Failed to scrape ${url}:`, error);
       throw error;
     }
-  } /**
+  }/**
    * Scrape listing pages (with infinite scroll support)
    * @param {string} listingUrl - Category or brand URL
    * @returns {Array} Product URLs

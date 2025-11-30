@@ -5,7 +5,7 @@ const Product = require('../src/models/Product');
 const Review = require('../src/models/Review');
 
 // Test product URL
-const TEST_PRODUCT_URL = 'https://priceoye.pk/mobiles/tecno/tecno-spark-20';
+const TEST_PRODUCT_URL = 'https://priceoye.pk/mobiles/xiaomi/xiaomi-14';
 
 async function testReviewsAndSchema() {
   
