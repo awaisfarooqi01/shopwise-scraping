@@ -4,12 +4,10 @@ const PriceOyeScraper = require('../src/scrapers/priceoye/priceoye-scraper');
 const Product = require('../src/models/Product');
 const Review = require('../src/models/Review');
 
-// Test product with reviews (using iPhone 8 Plus - discontinued but has reviews)
-const TEST_PRODUCT_URL = 'https://priceoye.pk/smart-watches/zero/zero-ninja-smart-watch';
+// Test product URL
+const TEST_PRODUCT_URL = 'https://priceoye.pk/mobiles/tecno/tecno-spark-20';
 
 async function testReviewsAndSchema() {
-  console.log('🧪 Testing Reviews and Schema Updates\n');
-  console.log('=' .repeat(60));
   
   let scraper;
   
@@ -34,8 +32,6 @@ async function testReviewsAndSchema() {
     // });
     // console.log('✅ Test data cleaned\n');
     
-    // Scrape product (includes reviews)
-    console.log('🔍 Scraping product with reviews...');
     console.log(`📍 URL: ${TEST_PRODUCT_URL}\n`);
     const product = await scraper.scrapeProduct(TEST_PRODUCT_URL);
     

@@ -54,19 +54,19 @@ async function testBrandScraping() {
     console.log('✅ Scraper initialized\n');
     
     // Optional: Clean up existing test data
-    const shouldCleanup = process.argv.includes('--clean');
-    if (shouldCleanup) {
-      console.log('🧹 Cleaning up existing Nothing brand products...');
-      const deleteResult = await Product.deleteMany({ 
-        brand: { $regex: /^nothing$/i } 
-      });
-      console.log(`   Deleted ${deleteResult.deletedCount} existing products`);
+    // const shouldCleanup = process.argv.includes('--clean');
+    // if (shouldCleanup) {
+    //   console.log('🧹 Cleaning up existing Nothing brand products...');
+    //   const deleteResult = await Product.deleteMany({ 
+    //     brand: { $regex: /^nothing$/i } 
+    //   });
+    //   console.log(`   Deleted ${deleteResult.deletedCount} existing products`);
       
-      const reviewDeleteResult = await Review.deleteMany({
-        platform_name: 'PriceOye',
-      });
-      console.log(`   Deleted ${reviewDeleteResult.deletedCount} existing reviews\n`);
-    }
+    //   const reviewDeleteResult = await Review.deleteMany({
+    //     platform_name: 'PriceOye',
+    //   });
+    //   console.log(`   Deleted ${reviewDeleteResult.deletedCount} existing reviews\n`);
+    // }
     
     console.log('=' .repeat(70));
     console.log('🏷️  STARTING BRAND SCRAPING');
@@ -76,7 +76,9 @@ async function testBrandScraping() {
     
     // Scrape the entire brand
     console.log('🔍 Discovering products...\n');
-    const products = await scraper.scrapeBrand('apple', 'mobiles');
+    //https://priceoye.pk/bluetooth-speakers/faster
+    // const products = await scraper.scrapeBrand('qmobile', 'mobiles');
+    const products = await scraper.scrapeBrandByUrl('https://priceoye.pk/power-banks');
     
     stats.totalProducts = products.length;
     

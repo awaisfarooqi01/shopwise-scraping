@@ -1304,8 +1304,16 @@ class PriceOyeScraper extends BaseScraper {
     try {
       // Extract brand name from URL if not provided
       if (!brandName) {
-        const match = brandUrl.match(/\/mobiles\/([a-z-]+)/i);
-        brandName = match ? match[1] : 'unknown';
+        // Extract brand name from URL dynamically (last path segment)
+        // URL format: https://priceoye.pk/{category}/{brand}
+        try {
+          const urlParts = new URL(brandUrl);
+          const pathParts = urlParts.pathname.split('/').filter(p => p.length > 0);
+          // Last path segment is typically the brand
+          brandName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : 'unknown';
+        } catch (e) {
+          brandName = 'unknown';
+        }
       }
 
       logger.info(`\n🏷️  Scraping brand: ${brandName}`);
@@ -1350,7 +1358,7 @@ class PriceOyeScraper extends BaseScraper {
    * Scrape listing pages (with infinite scroll support)
    * @param {string} listingUrl - Category or brand URL
    * @returns {Array} Product URLs
-   */
+   */  
   async scrapeListingPages(listingUrl) {
     try {
       logger.info(`\n📄 Scraping listing page with infinite scroll...`);
@@ -1360,6 +1368,15 @@ class PriceOyeScraper extends BaseScraper {
 
       // Wait for initial products to load
       await this.page.waitForTimeout(3000);
+
+      // Dynamically extract category slug from the URL
+      // URL format: https://priceoye.pk/{category-slug} or https://priceoye.pk/{category-slug}/{brand}
+      const urlParts = new URL(listingUrl);
+      const pathParts = urlParts.pathname.split('/').filter(p => p.length > 0);
+      // First path part is the category slug (e.g., "mobiles", "smart-watches", "wireless-earbuds", etc.)
+      const category = pathParts.length > 0 ? pathParts[0] : null;
+      
+      logger.info(`   🔍 Detected category from URL: ${category || 'generic'}`);
 
       // Scroll down to load all products (infinite scroll)
       logger.info(`   🔄 Scrolling to load all products...`);
@@ -1374,27 +1391,35 @@ class PriceOyeScraper extends BaseScraper {
         scrollAttempts++;
 
         // Get current actual product count (only count product links, not pricelist/category links)
-        const currentProductCount = await this.page.evaluate(() => {
-          const allLinks = document.querySelectorAll('a[href*="/mobiles/"]');
+        const currentProductCount = await this.page.evaluate((detectedCategory) => {
+          // Build selector based on detected category or use generic pattern
+          const selector = detectedCategory 
+            ? `a[href*="/${detectedCategory}/"]`
+            : 'a[href]';
+          
+          const allLinks = document.querySelectorAll(selector);
           let productCount = 0;
+
+          // Regex pattern to match product URLs: /category/brand-or-subcategory/product-name
+          // The category must match exactly if detected, otherwise match any slug pattern
+          const categoryPattern = detectedCategory ? detectedCategory.replace(/-/g, '\\-') : '[a-z0-9-]+';
+          const productUrlRegex = new RegExp(
+            `^\\/(${categoryPattern})\\/[a-z0-9-]+\\/[a-z0-9-_]+$`,
+            'i'
+          );
 
           allLinks.forEach(link => {
             const href = link.getAttribute('href');
             if (href) {
-              // Only count actual product URLs (brand/product pattern), exclude pricelist
-              if (
-                href.match(/\/mobiles\/[a-z0-9-]+\/[a-z0-9-_]+$/i) &&
-                !href.includes('/pricelist/')
-              ) {
+              // Only count actual product URLs (category/brand/product pattern), exclude pricelist
+              if (productUrlRegex.test(href) && !href.includes('/pricelist/')) {
                 productCount++;
               }
             }
           });
 
           return productCount;
-        });
-
-        logger.info(`   📦 Scroll ${scrollAttempts}: ${currentProductCount} products found`);
+        }, category);        logger.info(`   📦 Scroll ${scrollAttempts}: ${currentProductCount} products found`);
 
         // Check if new products were loaded
         if (currentProductCount === previousProductCount) {
@@ -1405,23 +1430,49 @@ class PriceOyeScraper extends BaseScraper {
           previousProductCount = currentProductCount;
         }
 
-        // Scroll to bottom in multiple steps for better loading
+        // Get current page number from pagination before scrolling
+        const currentPage = await this.page.evaluate(() => {
+          const activePage = document.querySelector('.pagination .current.active') ||
+                            document.querySelector('.pagination .active');
+          return activePage ? parseInt(activePage.textContent.trim()) : 1;
+        });
+        
+        logger.info(`   📄 Current page: ${currentPage}`);
+
+        // Incremental scroll approach to trigger infinite scroll reliably
+        // Step 1: Scroll down incrementally (not directly to pagination)
         await this.page.evaluate(() => {
-          // Scroll in smaller increments to trigger lazy loading
-          const scrollStep = document.body.scrollHeight / 3;
-          window.scrollBy(0, scrollStep);
+          // Scroll by 80% of viewport height to stay within product area
+          const scrollAmount = Math.floor(window.innerHeight * 0.8);
+          window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+        });
+        
+        // Wait for scroll animation
+        await this.page.waitForTimeout(1000);
+
+        // Step 2: Now scroll to bring pagination into view (triggers next page load)
+        await this.page.evaluate(() => {
+          const pagination = document.querySelector('#pagination-view-port') || 
+                            document.querySelector('.pagination');
+          if (pagination) {
+            // Scroll to pagination but keep it at bottom of viewport
+            pagination.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
         });
 
-        // Wait a bit for new products to load
+        // Wait longer for AJAX to load new products (some pages are slow)
+        await this.page.waitForTimeout(3000);
+
+        // Step 3: Scroll up slightly and back down to ensure scroll event fires
+        await this.page.evaluate(() => {
+          window.scrollBy({ top: -100, behavior: 'smooth' });
+        });
+        await this.page.waitForTimeout(500);
+        
+        await this.page.evaluate(() => {
+          window.scrollBy({ top: 150, behavior: 'smooth' });
+        });
         await this.page.waitForTimeout(1500);
-
-        // Scroll to absolute bottom
-        await this.page.evaluate(() => {
-          window.scrollTo(0, document.body.scrollHeight);
-        });
-
-        // Wait for new products to load
-        await this.page.waitForTimeout(2000);
       }
 
       if (scrollAttempts >= maxScrollAttempts) {
@@ -1439,8 +1490,7 @@ class PriceOyeScraper extends BaseScraper {
       logger.error(`Error scraping listing page:`, error.message);
       return [];
     }
-  }
-  /**
+  }  /**
    * Extract product URLs from current listing page
    */
   async extractProductUrlsFromPage() {
@@ -1450,19 +1500,19 @@ class PriceOyeScraper extends BaseScraper {
       const html = await this.page.content();
       const $ = cheerio.load(html);
 
-      // Dynamically detect category from current URL
+      // Dynamically extract category slug from the current URL
       const currentUrl = await this.page.url();
-      const categoryMatch = currentUrl.match(
-        /\/(mobiles|smart-watches|tablets|headphones|smart-watches|accessories|power-banks)\/[a-z0-9-]+/i
-      );
-      const category = categoryMatch ? categoryMatch[1] : 'mobiles';
+      const urlParts = new URL(currentUrl);
+      const pathParts = urlParts.pathname.split('/').filter(p => p.length > 0);
+      // First path part is the category slug
+      const category = pathParts.length > 0 ? pathParts[0] : null;
 
-      logger.debug(`   🔍 Detected category: ${category}`);
+      logger.debug(`   🔍 Detected category from URL: ${category || 'generic'}`);
 
       // Find product links - check for detected category + generic patterns
       const linkSelectors = [
         selectors.listing.productLink,
-        `a[href*="/${category}/"]`,
+        category ? `a[href*="/${category}/"]` : 'a[href]',
         '.product-card a',
         '[class*="product"] a',
       ];
@@ -1477,15 +1527,20 @@ class PriceOyeScraper extends BaseScraper {
               : `${this.baseUrl}${href.startsWith('/') ? href : '/' + href}`;
 
             // Only add product URLs (not category/brand/pricelist pages)
-            // Pattern: /CATEGORY/BRAND/PRODUCT-NAME (case insensitive, allows numbers, hyphens, underscores)
+            // Pattern: /CATEGORY/BRAND-OR-SUBCATEGORY/PRODUCT-NAME 
+            // The URL must have exactly 3 path segments for a product
             // EXCLUDE: /pricelist/* (those are listing pages, not products)
-            // Match any category: mobiles, smart-watches, tablets, etc.
-            if (
-              absoluteUrl.match(
-                /\/(mobiles|smart-watches|tablets|headphones|accessories|power-banks)\/[a-z0-9-]+\/[a-z0-9-_]+$/i
-              ) &&
-              !absoluteUrl.includes('/pricelist/')
-            ) {
+            
+            // Build regex pattern - escape hyphens in category name
+            const categoryPattern = category 
+              ? category.replace(/-/g, '\\-') 
+              : '[a-z0-9-]+';
+            const productUrlRegex = new RegExp(
+              `\\/(${categoryPattern})\\/[a-z0-9-]+\\/[a-z0-9-_]+$`,
+              'i'
+            );
+            
+            if (productUrlRegex.test(absoluteUrl) && !absoluteUrl.includes('/pricelist/')) {
               if (!urls.includes(absoluteUrl)) {
                 urls.push(absoluteUrl);
               }
@@ -1539,75 +1594,7 @@ class PriceOyeScraper extends BaseScraper {
       return false;
     }
   }
-
   /**
-   * Scrape entire category
-   * @param {string} categorySlug - Category slug (e.g., 'mobiles')
-   */
-  async scrapeCategory(categorySlug) {
-    try {
-      const categoryConfig = this.config.categories[categorySlug];
-
-      if (!categoryConfig) {
-        throw new Error(`Category not configured: ${categorySlug}`);
-      }
-
-      if (!categoryConfig.enabled) {
-        logger.warn(`Category ${categorySlug} is disabled`);
-        return [];
-      }
-
-      const categoryUrl = `${this.baseUrl}${categoryConfig.url}`;
-      logger.info(`\n📂 Scraping category: ${categorySlug}`);
-      logger.info(`📍 URL: ${categoryUrl}`);
-
-      // Get all product URLs from listing
-      const productUrls = await this.scrapeListingPages(categoryUrl);
-
-      logger.info(`\n📊 Found ${productUrls.length} products in ${categorySlug}`);
-
-      // Scrape products in batches
-      const products = [];
-      const batchSize = this.config.database.batchSize;
-
-      for (let i = 0; i < productUrls.length; i += batchSize) {
-        const batch = productUrls.slice(i, i + batchSize);
-        logger.info(
-          `\n📦 Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(productUrls.length / batchSize)}`
-        );
-
-        const batchProducts = await Promise.all(
-          batch.map(url =>
-            this.queue.add(() =>
-              pRetry(() => this.scrapeProduct(url), {
-                retries: this.config.retry.maxRetries,
-                factor: this.config.retry.factor,
-              }).catch(error => {
-                logger.error(`Failed to scrape ${url}:`, error.message);
-                return null;
-              })
-            )
-          )
-        );
-
-        products.push(...batchProducts.filter(p => p !== null));
-
-        // Delay between batches
-        if (i + batchSize < productUrls.length) {
-          await this.page.waitForTimeout(this.config.rateLimit.batchDelay);
-        }
-      }
-
-      logger.info(
-        `\n✅ Category scraping complete: ${products.length}/${productUrls.length} products scraped`
-      );
-
-      return products;
-    } catch (error) {
-      logger.error(`Failed to scrape category ${categorySlug}:`, error.message);
-      throw error;
-    }
-  } /**
    * Normalize availability status
    * @param {string} status - Raw availability status
    * @returns {string} Normalized status
@@ -1634,7 +1621,6 @@ class PriceOyeScraper extends BaseScraper {
     // Default to out_of_stock for any unknown status
     return 'out_of_stock';
   }
-
   /**
    * Clean HTML from text and return plain text
    * @param {string} html - HTML string
@@ -1644,19 +1630,14 @@ class PriceOyeScraper extends BaseScraper {
     if (!html) return '';
 
     try {
-      // Load HTML into cheerio
-      const $ = cheerio.load(html);
+      // Load HTML into cheerio (use null for fragment mode)
+      const $ = cheerio.load(html, null, false);
 
       // Remove script and style tags
       $('script, style').remove();
 
-      // Get text content
-      let text = $('body').text();
-
-      // If no body tag, just get all text
-      if (!text || text.trim().length === 0) {
-        text = $.text();
-      }
+      // Get text content from root (works for HTML fragments)
+      let text = $.root().text();
 
       // Clean up whitespace
       text = text
@@ -1673,7 +1654,7 @@ class PriceOyeScraper extends BaseScraper {
         .replace(/\s+/g, ' ') // Clean whitespace
         .trim();
     }
-  } /**
+  }/**
    * Scrape all reviews for a product from its reviews page (with pagination via "Show More")
    * @param {string} productId - MongoDB product ID
    * @param {string} productUrl - Product URL

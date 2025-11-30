@@ -51,7 +51,6 @@ module.exports = {
     // Timezone
     timezoneId: 'Asia/Karachi',
   },
-
   // ============================================
   // PAGE LOAD SETTINGS
   // ============================================
@@ -59,8 +58,8 @@ module.exports = {
     // Wait until condition before considering page loaded
     waitUntil: 'networkidle', // 'load', 'domcontentloaded', 'networkidle'
     
-    // Timeout for page load
-    timeout: 60000, // 60 seconds
+    // Timeout for page load (increased for slow pages)
+    timeout: 120000, // 120 seconds (2 minutes)
     
     // Extra wait after page load (for dynamic content)
     extraWait: 2000, // 2 seconds
