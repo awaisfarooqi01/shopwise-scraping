@@ -1,0 +1,105 @@
+# Category-Specific Scraper Workflows
+#
+# This workflow allows scraping individual categories on different schedules.
+# Useful for high-priority categories that need more frequent updates.
+
+name: PriceOye Category Scrapers
+
+on:
+  schedule:
+    # Mobiles - Every day at 2 AM UTC (high priority)
+    - cron: '0 2 * * *'
+    
+  workflow_dispatch:
+    inputs:
+      category:
+        description: 'Select category to scrape'
+        required: true
+        type: choice
+        options:
+          - Mobiles
+          - Smart Watches
+          - Wireless Earbuds
+          - Tablets
+          - Laptops
+          - Power Banks
+          - Bluetooth Speakers
+          - LED TV
+          - AC
+          - Refrigerators
+
+concurrency:
+  group: priceoye-category-${{ github.event.inputs.category || 'scheduled' }}
+  cancel-in-progress: false
+
+jobs:
+  # Determine which category to scrape based on schedule
+  determine-category:
+    runs-on: ubuntu-latest
+    outputs:
+      category: ${{ steps.set-category.outputs.category }}
+    steps:
+      - name: Set Category
+        id: set-category
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "category=${{ github.event.inputs.category }}" >> $GITHUB_OUTPUT
+          else
+            # For scheduled runs, determine based on day of week
+            DAY=$(date +%u)  # 1=Monday, 7=Sunday
+            case $DAY in
+              1) CATEGORY="Mobiles" ;;
+              2) CATEGORY="Smart Watches" ;;
+              3) CATEGORY="Wireless Earbuds" ;;
+              4) CATEGORY="Tablets" ;;
+              5) CATEGORY="Laptops" ;;
+              6) CATEGORY="Power Banks" ;;
+              7) CATEGORY="Mobiles" ;;  # Sunday - repeat high priority
+            esac
+            echo "category=$CATEGORY" >> $GITHUB_OUTPUT
+          fi
+
+  scrape-category:
+    needs: determine-category
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🎭 Install Playwright Browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: 📁 Create Directories
+        run: |
+          mkdir -p data
+          mkdir -p data/screenshots
+
+      - name: 🕷️ Scrape ${{ needs.determine-category.outputs.category }}
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          NODE_ENV: production
+        run: |
+          echo "Scraping category: ${{ needs.determine-category.outputs.category }}"
+          node scripts/scrape-priceoye.js --category "${{ needs.determine-category.outputs.category }}"
+
+      - name: 📊 Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.determine-category.outputs.category }}-logs-${{ github.run_number }}
+          path: |
+            logs/*.log
+            data/screenshots/
+          retention-days: 5
+          if-no-files-found: ignore
