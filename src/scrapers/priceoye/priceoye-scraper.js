@@ -26,7 +26,8 @@ const cheerio = require('cheerio');
 const PQueue = null;
 
 // Unmapped category ID - set this in your .env or get from database
-const UNMAPPED_CATEGORY_ID = process.env.UNMAPPED_CATEGORY_ID || null;
+// const UNMAPPED_CATEGORY_ID = process.env.UNMAPPED_CATEGORY_ID || null; // local
+const UNMAPPED_CATEGORY_ID = '692eb8c6ac1679df1d60ed19'; // cloud
 
 class PriceOyeScraper extends BaseScraper {
   constructor() {
@@ -88,20 +89,17 @@ class PriceOyeScraper extends BaseScraper {
         const html = await this.page.content();
         const $ = cheerio.load(html);
         productData = await this.extractProductData($);
-      }      // Add platform and URL
+      } // Add platform and URL
       productData.platform_id = this.platform._id;
       productData.platform_name = this.platform.name;
       productData.original_url = url;
       // Normalize brand (with auto-creation if not found)
       if (productData.brand) {
         logger.info(`   🏷️  Normalizing brand: ${productData.brand}`);
-        const normalizedBrand = await databaseService.normalizeBrand(
-          productData.brand,
-          {
-            platformId: this.platform._id.toString(),
-            autoCreate: true, // Auto-create if not found
-          }
-        );
+        const normalizedBrand = await databaseService.normalizeBrand(productData.brand, {
+          platformId: this.platform._id.toString(),
+          autoCreate: true, // Auto-create if not found
+        });
         if (normalizedBrand && normalizedBrand.brand_id) {
           productData.brand_id = normalizedBrand.brand_id;
           productData.platform_metadata = productData.platform_metadata || {};
@@ -126,7 +124,7 @@ class PriceOyeScraper extends BaseScraper {
           productData.brand_id = null;
         }
       }
-      
+
       // Map category using DatabaseService (direct DB access)
       if (productData.category_name) {
         logger.info(`   📂 Mapping category: ${productData.category_name}`);
@@ -657,11 +655,11 @@ class PriceOyeScraper extends BaseScraper {
           break;
         }
       }
-      
+
       if (priceText) {
         pricing.price = parsePrice(priceText);
       }
-      
+
       // If price not found with standard selectors, try motorcycle/bike price structure
       // Format: <div class="po-price-content"><span class="summary-price"><span><sup>Rs</sup> 170,900</span></span></div>
       if (!pricing.price || pricing.price === 0) {
@@ -670,7 +668,7 @@ class PriceOyeScraper extends BaseScraper {
         if (summaryPrice && summaryPrice.match(/\d/)) {
           pricing.price = parsePrice(summaryPrice);
         }
-        
+
         // Try po-price-content structure
         if (!pricing.price || pricing.price === 0) {
           const poPriceContent = $('.po-price-content .product-price').first().text().trim();
@@ -680,7 +678,7 @@ class PriceOyeScraper extends BaseScraper {
             pricing.price = parsePrice(cleanedText);
           }
         }
-        
+
         // Try generic product-price class
         if (!pricing.price || pricing.price === 0) {
           const productPrice = $('.product-price').first().text().trim();
@@ -689,7 +687,7 @@ class PriceOyeScraper extends BaseScraper {
           }
         }
       }
-      
+
       if (!pricing.price || pricing.price === 0) {
         throw new Error('Price not found');
       }
@@ -702,7 +700,7 @@ class PriceOyeScraper extends BaseScraper {
         '[class*="mrp"]',
         '.strike',
       ];
-      
+
       for (const selector of originalPriceSelectors) {
         const originalPriceText = $(selector).first().text().trim();
         if (originalPriceText && originalPriceText.match(/\d/)) {
@@ -770,7 +768,11 @@ class PriceOyeScraper extends BaseScraper {
         const poPrice = document.querySelector('.po-price-content .product-price');
         if (poPrice) {
           const priceText = poPrice.textContent.trim();
-          const numericPrice = priceText.replace(/Rs\.?/gi, '').replace(/,/g, '').replace(/Last Updated Price/gi, '').trim();
+          const numericPrice = priceText
+            .replace(/Rs\.?/gi, '')
+            .replace(/,/g, '')
+            .replace(/Last Updated Price/gi, '')
+            .trim();
           const parsed = parseFloat(numericPrice);
           if (!isNaN(parsed) && parsed > 0) {
             return parsed;
@@ -778,11 +780,7 @@ class PriceOyeScraper extends BaseScraper {
         }
 
         // Priority 3: Generic price selectors
-        const priceSelectors = [
-          '.product-price',
-          '[class*="price"]',
-          '[itemprop="price"]',
-        ];
+        const priceSelectors = ['.product-price', '[class*="price"]', '[itemprop="price"]'];
 
         for (const selector of priceSelectors) {
           const el = document.querySelector(selector);
@@ -959,7 +957,7 @@ class PriceOyeScraper extends BaseScraper {
       // ============================================
       // MOTORCYCLE/BIKE SPECIFIC STRUCTURES (Priority)
       // ============================================
-      
+
       // 1. Bullet specs: .bullet-specs .spec-desc with <strong>value</strong><span>label</span>
       // Note: In this structure, VALUE comes first (in <strong>), LABEL comes second (in <span>)
       $('.bullet-specs .spec-desc').each((i, item) => {
@@ -969,7 +967,7 @@ class PriceOyeScraper extends BaseScraper {
           specs.set(label, value);
         }
       });
-      
+
       // 2. Spec table: .p-spec-table .spec-list with <dt class="spec-term">label</dt><dd class="spec-detail">value</dd>
       $('.p-spec-table .spec-list dt.spec-term').each((i, dt) => {
         const label = $(dt).text().trim();
@@ -979,7 +977,7 @@ class PriceOyeScraper extends BaseScraper {
           specs.set(label, value);
         }
       });
-      
+
       // 3. Alternative spec table format: direct dl > dt + dd pairs
       $('.spec-list dt, .specs-list dt').each((i, dt) => {
         const label = $(dt).text().trim();
@@ -993,7 +991,7 @@ class PriceOyeScraper extends BaseScraper {
       // ============================================
       // STANDARD MOBILE/ELECTRONICS STRUCTURES
       // ============================================
-      
+
       // Try table format
       if (specs.size === 0) {
         const table = $(selectors.product.specifications.table).first();
@@ -1035,7 +1033,7 @@ class PriceOyeScraper extends BaseScraper {
       // ============================================
       // FALLBACK STRUCTURES
       // ============================================
-      
+
       if (specs.size === 0) {
         // Try .spec-box or similar structures
         $('.spec-box, .specification-item, .spec-item').each((i, item) => {
@@ -1045,7 +1043,7 @@ class PriceOyeScraper extends BaseScraper {
             specs.set(label, value);
           }
         });
-        
+
         // Try table rows with th/td structure
         $('table tr').each((i, row) => {
           const label = $(row).find('th, td:first-child').first().text().trim();
@@ -1381,7 +1379,7 @@ class PriceOyeScraper extends BaseScraper {
       // Extract name from URL if not provided
       if (!name) {
         // Extract name from URL dynamically (last path segment)
-        // URL formats: 
+        // URL formats:
         //   - Category: https://priceoye.pk/{category}
         //   - Brand: https://priceoye.pk/{category}/{brand}
         try {
@@ -1438,11 +1436,11 @@ class PriceOyeScraper extends BaseScraper {
       logger.error(`Failed to scrape ${url}:`, error);
       throw error;
     }
-  }/**
+  } /**
    * Scrape listing pages (with infinite scroll support)
    * @param {string} listingUrl - Category or brand URL
    * @returns {Array} Product URLs
-   */  
+   */
   async scrapeListingPages(listingUrl) {
     try {
       logger.info(`\n📄 Scraping listing page with infinite scroll...`);
@@ -1459,7 +1457,7 @@ class PriceOyeScraper extends BaseScraper {
       const pathParts = urlParts.pathname.split('/').filter(p => p.length > 0);
       // First path part is the category slug (e.g., "mobiles", "smart-watches", "wireless-earbuds", etc.)
       const category = pathParts.length > 0 ? pathParts[0] : null;
-      
+
       logger.info(`   🔍 Detected category from URL: ${category || 'generic'}`);
 
       // Scroll down to load all products (infinite scroll)
@@ -1475,18 +1473,18 @@ class PriceOyeScraper extends BaseScraper {
         scrollAttempts++;
 
         // Get current actual product count (only count product links, not pricelist/category links)
-        const currentProductCount = await this.page.evaluate((detectedCategory) => {
+        const currentProductCount = await this.page.evaluate(detectedCategory => {
           // Build selector based on detected category or use generic pattern
-          const selector = detectedCategory 
-            ? `a[href*="/${detectedCategory}/"]`
-            : 'a[href]';
-          
+          const selector = detectedCategory ? `a[href*="/${detectedCategory}/"]` : 'a[href]';
+
           const allLinks = document.querySelectorAll(selector);
           let productCount = 0;
 
           // Regex pattern to match product URLs: /category/brand-or-subcategory/product-name
           // The category must match exactly if detected, otherwise match any slug pattern
-          const categoryPattern = detectedCategory ? detectedCategory.replace(/-/g, '\\-') : '[a-z0-9-]+';
+          const categoryPattern = detectedCategory
+            ? detectedCategory.replace(/-/g, '\\-')
+            : '[a-z0-9-]+';
           const productUrlRegex = new RegExp(
             `^\\/(${categoryPattern})\\/[a-z0-9-]+\\/[a-z0-9-_]+$`,
             'i'
@@ -1503,7 +1501,8 @@ class PriceOyeScraper extends BaseScraper {
           });
 
           return productCount;
-        }, category);        logger.info(`   📦 Scroll ${scrollAttempts}: ${currentProductCount} products found`);
+        }, category);
+        logger.info(`   📦 Scroll ${scrollAttempts}: ${currentProductCount} products found`);
 
         // Check if new products were loaded
         if (currentProductCount === previousProductCount) {
@@ -1516,11 +1515,12 @@ class PriceOyeScraper extends BaseScraper {
 
         // Get current page number from pagination before scrolling
         const currentPage = await this.page.evaluate(() => {
-          const activePage = document.querySelector('.pagination .current.active') ||
-                            document.querySelector('.pagination .active');
+          const activePage =
+            document.querySelector('.pagination .current.active') ||
+            document.querySelector('.pagination .active');
           return activePage ? parseInt(activePage.textContent.trim()) : 1;
         });
-        
+
         logger.info(`   📄 Current page: ${currentPage}`);
 
         // Incremental scroll approach to trigger infinite scroll reliably
@@ -1530,14 +1530,15 @@ class PriceOyeScraper extends BaseScraper {
           const scrollAmount = Math.floor(window.innerHeight * 0.8);
           window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
         });
-        
+
         // Wait for scroll animation
         await this.page.waitForTimeout(1000);
 
         // Step 2: Now scroll to bring pagination into view (triggers next page load)
         await this.page.evaluate(() => {
-          const pagination = document.querySelector('#pagination-view-port') || 
-                            document.querySelector('.pagination');
+          const pagination =
+            document.querySelector('#pagination-view-port') ||
+            document.querySelector('.pagination');
           if (pagination) {
             // Scroll to pagination but keep it at bottom of viewport
             pagination.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1552,7 +1553,7 @@ class PriceOyeScraper extends BaseScraper {
           window.scrollBy({ top: -100, behavior: 'smooth' });
         });
         await this.page.waitForTimeout(500);
-        
+
         await this.page.evaluate(() => {
           window.scrollBy({ top: 150, behavior: 'smooth' });
         });
@@ -1574,7 +1575,7 @@ class PriceOyeScraper extends BaseScraper {
       logger.error(`Error scraping listing page:`, error.message);
       return [];
     }
-  }  /**
+  } /**
    * Extract product URLs from current listing page
    */
   async extractProductUrlsFromPage() {
@@ -1611,19 +1612,17 @@ class PriceOyeScraper extends BaseScraper {
               : `${this.baseUrl}${href.startsWith('/') ? href : '/' + href}`;
 
             // Only add product URLs (not category/brand/pricelist pages)
-            // Pattern: /CATEGORY/BRAND-OR-SUBCATEGORY/PRODUCT-NAME 
+            // Pattern: /CATEGORY/BRAND-OR-SUBCATEGORY/PRODUCT-NAME
             // The URL must have exactly 3 path segments for a product
             // EXCLUDE: /pricelist/* (those are listing pages, not products)
-            
+
             // Build regex pattern - escape hyphens in category name
-            const categoryPattern = category 
-              ? category.replace(/-/g, '\\-') 
-              : '[a-z0-9-]+';
+            const categoryPattern = category ? category.replace(/-/g, '\\-') : '[a-z0-9-]+';
             const productUrlRegex = new RegExp(
               `\\/(${categoryPattern})\\/[a-z0-9-]+\\/[a-z0-9-_]+$`,
               'i'
             );
-            
+
             if (productUrlRegex.test(absoluteUrl) && !absoluteUrl.includes('/pricelist/')) {
               if (!urls.includes(absoluteUrl)) {
                 urls.push(absoluteUrl);
@@ -1738,7 +1737,7 @@ class PriceOyeScraper extends BaseScraper {
         .replace(/\s+/g, ' ') // Clean whitespace
         .trim();
     }
-  }/**
+  } /**
    * Scrape all reviews for a product from its reviews page (with pagination via "Show More")
    * @param {string} productId - MongoDB product ID
    * @param {string} productUrl - Product URL
