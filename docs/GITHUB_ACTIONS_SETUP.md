@@ -288,10 +288,14 @@ shopwise-scraping/          # ← This is the GitHub repo root
 ├── .github/
 │   └── workflows/
 │       ├── scrape-priceoye.yml      # Main scraper workflow
-│       └── scrape-categories.yml    # Category-specific workflow
+│       ├── scrape-categories.yml    # Category-specific workflow
+│       └── seed-database.yml        # Database seeding workflow
 ├── scripts/
-│   └── scrape-priceoye.js           # Main scraper script
+│   ├── scrape-priceoye.js           # Main scraper script
+│   └── seed-production.js           # Database seeder script
 ├── src/
+│   ├── database/
+│   │   └── seeders/                 # Production data seeders
 │   └── scrapers/priceoye/
 │       ├── priceoye-scraper.js      # Scraper implementation
 │       └── priceoye-categories.json # Categories configuration
@@ -303,10 +307,70 @@ shopwise-scraping/          # ← This is the GitHub repo root
 ### NPM Scripts
 
 ```bash
+# Scraping
 npm run scrape:priceoye           # Run full scrape
 npm run scrape:priceoye:dry       # Dry run
 npm run scrape:priceoye:resume    # Resume from failure
+
+# Database Seeding
+npm run seed:production           # Seed all collections
+npm run seed:production:essential # Seed only platforms & categories
+npm run seed:production:clear     # Clear and reseed
 ```
+
+---
+
+## 🌱 Database Seeding Workflow
+
+### MongoDB URI Strategy
+
+For production, always use the database name `shopwise` at the end of your MongoDB URI:
+
+```
+mongodb+srv://username:password@cluster.mongodb.net/shopwise
+```
+
+This ensures:
+- All services (scraping, backend) use the same database
+- Consistent data across environments
+- Easy debugging and monitoring
+
+### Seeding Workflow (`seed-database.yml`)
+
+**Location:** `.github/workflows/seed-database.yml`
+
+This workflow seeds the production database with essential data:
+- **Platforms**: PriceOye, Daraz, Telemart, Homeshopping, Goto
+- **Categories**: Electronics, Home Appliances, Vehicles, Beauty & Health, Fashion
+- **Brands**: 60+ popular brands across all categories
+- **Category Mappings**: PriceOye URL slugs to our category structure
+
+**How to Run:**
+1. Go to **Actions** tab
+2. Select **Seed Production Database**
+3. Click **Run workflow**
+4. Choose:
+   - `full` - All data (recommended for first run)
+   - `essential` - Only platforms & categories (faster)
+5. Optionally enable "Clear existing data"
+
+**After Seeding:**
+The workflow will output important IDs:
+```
+UNMAPPED_CATEGORY_ID=<id>
+PRICEOYE_PLATFORM_ID=<id>
+```
+
+Add these to your repository secrets or `.env` file.
+
+### First-Time Setup Order
+
+1. **Set up MongoDB** (Atlas or self-hosted)
+2. **Add secrets** to GitHub repository:
+   - `MONGODB_URI` - Your MongoDB connection string
+3. **Run seed workflow** to populate database
+4. **Copy IDs** from seed output to secrets
+5. **Run scraper workflow** to start collecting data
 
 ### Useful Links
 
