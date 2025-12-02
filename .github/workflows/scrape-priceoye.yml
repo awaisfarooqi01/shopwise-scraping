@@ -49,9 +49,10 @@ on:
     # Run mobiles category every day at 3 AM UTC
     # - cron: '0 3 * * *'
 
-# Prevent concurrent runs
+# Prevent concurrent runs of the SAME category
+# Different categories can run in parallel
 concurrency:
-  group: priceoye-scraper
+  group: priceoye-scraper-${{ github.event.inputs.category || 'full' }}
   cancel-in-progress: false
 
 jobs:
