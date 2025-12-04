@@ -52,7 +52,7 @@ git push -u origin main
 
    | Name | Value |
    |------|-------|
-   | `MONGODB_URI` | `mongodb+srv://awaisfarooqitech_db_user:Awais%40mongodb01@cluster0.cffa1z0.mongodb.net/shopwise?retryWrites=true&w=majority&appName=Cluster0` |
+   | `MONGODB_URI` | `putyourown` |
 
 6. Click **Add secret**
 
@@ -235,3 +235,4 @@ After any run (success or failure):
 Once you complete Steps 1-3, your scraper will be running on GitHub Actions!
 
 **Need help?** Check the workflow logs for detailed error messages.
+
