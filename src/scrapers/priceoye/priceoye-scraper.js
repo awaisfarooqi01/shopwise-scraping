@@ -27,12 +27,12 @@ const PQueue = null;
 
 // Unmapped category ID - set this in your .env or get from database
 // const UNMAPPED_CATEGORY_ID = process.env.UNMAPPED_CATEGORY_ID || null; // local
-const UNMAPPED_CATEGORY_ID = '692eb8c6ac1679df1d60ed19'; // cloud
+const UNMAPPED_CATEGORY_ID = '692eb8c6ac1679df1d60ed19'; // cloud production
 
 class PriceOyeScraper extends BaseScraper {
   constructor() {
     super(config);
-    this.baseUrl = config.platform.baseUrl;
+    this.baseUrl = config.platform.priceoye.baseUrl;
     this.platform = null;
     // Queue disabled for now - process sequentially
     this.queue = null;
