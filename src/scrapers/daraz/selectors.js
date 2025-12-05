@@ -122,29 +122,44 @@ module.exports = {
       averageRating: '.score-average',
       totalRatings: '.pdp-review-summary__link, .count',
       ratingBreakdown: '.mod-rating .detail li',
-    },
-
-    // Individual Review Items
+    }, // Individual Review Items
     reviewItem: {
       container: '.mod-reviews .item',
+      // Stars - filled stars have different image URL than empty stars
+      starsContainer: '.starCtn',
       stars: '.starCtn img.star',
+      // Filled star image pattern (TB19ZvEgfDH8KJjy1XcXXcpdXXa = filled)
+      filledStarPattern: 'TB19ZvEgfDH8KJjy1XcXXcpdXXa',
+      // Date in top right
       date: '.top .title.right',
-      author: '.middle span:first-child',
-      verified: '.verify',
-      content: '.item-content .content',
-      images: '.review-image__item img',
+      // Author is first span in .middle
+      author: '.middle > span:first-child',
+      // Verified purchase indicators
+      verified: '.verify, .verifyImg',
+      // Review text content
+      content: '.item-content > .content',
+      // Review images use background-image style, not img tags
+      imageContainer: '.review-image__item .image',
+      // SKU/variant info
       skuInfo: '.skuInfo',
-      likes: '.left-content span:last-child',
+      // Likes count - second span inside .left-content
+      likesContainer: '.left-content',
+      likes: '.left-content > span:last-child',
+      // Seller response (if exists)
+      sellerReply: '.seller-reply-wrapper',
+      sellerReplyContent: '.seller-reply-wrapper .content',
+      sellerReplyDate: '.seller-reply-wrapper .item-title span',
     },
 
     // Review Pagination
     reviewPagination: {
       container: '.review-pagination',
-      pageButtons: '.next-pagination-item',
+      pageButtons: '.next-pagination-list .next-pagination-item',
       currentPage: '.next-pagination-item.current',
       nextButton: '.next-pagination-item.next:not([disabled])',
       prevButton: '.next-pagination-item.prev:not([disabled])',
-      totalPages: '.next-pagination-list .next-pagination-item:last-of-type',
+      // Last page number button (excluding ellipsis)
+      lastPageButton: '.next-pagination-list button.next-pagination-item:last-of-type',
     },
 
     // Variants (SKU Selection)

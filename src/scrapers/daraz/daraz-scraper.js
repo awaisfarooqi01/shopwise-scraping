@@ -637,17 +637,18 @@ class DarazScraper extends BaseScraper {
 
     return text;
   }
-
   /**
    * Extract reviews for a product (with pagination support)
+   * Handles stale reviews during page transitions using deduplication
    * @param {string} url - Product URL
    * @param {object} options - Options
-   * @param {number} options.maxPages - Maximum pages to scrape (default: all)
-   * @param {number} options.maxReviews - Maximum reviews to collect (default: all)
+   * @param {number} options.maxPages - Maximum pages to scrape (default: 10)
+   * @param {number} options.maxReviews - Maximum reviews to collect (default: 100)
+   * @param {boolean} options.scrollToReviews - Scroll to review section first (default: true)
    * @returns {Promise<Array>} Array of review objects
    */
   async scrapeReviews(url, options = {}) {
-    const { maxPages = null, maxReviews = null } = options;
+    const { maxPages = 10, maxReviews = 100, scrollToReviews = true } = options;
 
     try {
       logger.info(`\n📝 Scraping reviews for: ${url}`);
@@ -655,33 +656,92 @@ class DarazScraper extends BaseScraper {
       // Navigate to product page if not already there
       const currentUrl = this.page.url();
       if (!currentUrl.includes(url.split('/products/')[1]?.split('.html')[0])) {
-        await this.goto(url);
+        logger.info('   📄 Navigating to product page...');
+        await this.page.goto(url, {
+          waitUntil: 'domcontentloaded',
+          timeout: 60000,
+        });
+        await this.page.waitForTimeout(5000);
+      }
+
+      // Scroll to review section to ensure it's loaded
+      if (scrollToReviews) {
+        logger.info('   📜 Scrolling to review section...');
+        await this.page.evaluate(() => {
+          const reviewSection = document.querySelector('#module_product_review, .pdp-mod-review');
+          if (reviewSection) {
+            reviewSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        });
+        await this.page.waitForTimeout(2000);
       }
 
       // Wait for review section to load
-      await this.page
+      const reviewContainerLoaded = await this.page
         .waitForSelector(this.selectors.product.reviews.container, {
           timeout: 10000,
         })
-        .catch(() => {
-          logger.warn('   ⚠️  Review container not found');
-        });
+        .then(() => true)
+        .catch(() => false);
 
-      const allReviews = [];
+      if (!reviewContainerLoaded) {
+        logger.warn('   ⚠️  Review container not found - product may have no reviews');
+        return [];
+      } // Use a Map to deduplicate reviews by their unique ID
+      const reviewsMap = new Map();
       let currentPage = 1;
       let hasMorePages = true;
+      let consecutiveEmptyPages = 0;
 
       while (hasMorePages) {
         logger.info(`   📄 Scraping review page ${currentPage}...`);
 
+        // Get current page number from UI to verify we're on the right page
+        const uiCurrentPage = await this.page.evaluate(selector => {
+          const currentBtn = document.querySelector(selector);
+          return currentBtn ? parseInt(currentBtn.textContent, 10) : null;
+        }, this.selectors.product.reviewPagination.currentPage);
+
+        // Detect if pagination wrapped back to page 1 (end of reviews)
+        if (uiCurrentPage && currentPage > 1 && uiCurrentPage === 1) {
+          logger.info(`   📊 Pagination wrapped to page 1 - reached end of reviews`);
+          break;
+        }
+
+        if (uiCurrentPage && uiCurrentPage !== currentPage && uiCurrentPage !== 1) {
+          logger.info(`   🔄 UI shows page ${uiCurrentPage}, expected ${currentPage}. Waiting...`);
+          await this.page.waitForTimeout(1000);
+        }
+
         // Extract reviews from current page
         const pageReviews = await this.extractReviewsFromPage();
-        allReviews.push(...pageReviews);
 
-        logger.info(`   ✅ Found ${pageReviews.length} reviews on page ${currentPage}`);
+        // Add new reviews to map (deduplication)
+        let newReviewsCount = 0;
+        for (const review of pageReviews) {
+          if (!reviewsMap.has(review._extractId)) {
+            reviewsMap.set(review._extractId, review);
+            newReviewsCount++;
+          }
+        }
+
+        logger.info(
+          `   ✅ Page ${currentPage}: ${pageReviews.length} reviews (${newReviewsCount} new)`
+        );
+
+        // Track consecutive empty pages to detect end of reviews
+        if (newReviewsCount === 0) {
+          consecutiveEmptyPages++;
+          if (consecutiveEmptyPages >= 2) {
+            logger.info('   📊 No new reviews found for 2 consecutive pages - ending');
+            break;
+          }
+        } else {
+          consecutiveEmptyPages = 0;
+        }
 
         // Check limits
-        if (maxReviews && allReviews.length >= maxReviews) {
+        if (maxReviews && reviewsMap.size >= maxReviews) {
           logger.info(`   📊 Reached max reviews limit (${maxReviews})`);
           break;
         }
@@ -689,41 +749,131 @@ class DarazScraper extends BaseScraper {
         if (maxPages && currentPage >= maxPages) {
           logger.info(`   📊 Reached max pages limit (${maxPages})`);
           break;
-        }
-
-        // Check for next page button
+        } // Check for next page button
         const nextButton = await this.page.$(this.selectors.product.reviewPagination.nextButton);
 
         if (nextButton) {
-          // Click next page
-          await nextButton.click();
+          // Get current reviews' unique identifiers to detect when they change
+          const selectors = {
+            container: this.selectors.product.reviewItem.container,
+            content: this.selectors.product.reviewItem.content,
+          };
 
-          // Wait for reviews to update
-          await this.page.waitForTimeout(1500);
-          await this.page
-            .waitForSelector(this.selectors.product.reviewItem.container, {
-              timeout: 10000,
-            })
-            .catch(() => {});
+          const currentReviewsFingerprint = await this.page.evaluate(sel => {
+            const reviews = document.querySelectorAll(sel.container);
+            const fingerprints = [];
+            reviews.forEach(review => {
+              const content = review.querySelector(sel.content);
+              if (content) {
+                // Use first 50 chars of each review as fingerprint
+                fingerprints.push(content.textContent.substring(0, 50).trim());
+              }
+            });
+            return fingerprints.join('|||');
+          }, selectors);
+
+          // Scroll the pagination into view first
+          await this.page.evaluate(() => {
+            const pagination = document.querySelector('.review-pagination');
+            if (pagination) {
+              pagination.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          });
+
+          await this.page.waitForTimeout(500);
+
+          // Click the next button using JavaScript (more reliable)
+          const clicked = await this.page.evaluate(selector => {
+            const btn = document.querySelector(selector);
+            if (btn && !btn.disabled) {
+              btn.click();
+              return true;
+            }
+            return false;
+          }, this.selectors.product.reviewPagination.nextButton);
+
+          if (!clicked) {
+            logger.info('   📊 Next button not clickable - reached end of reviews');
+            hasMorePages = false;
+            continue;
+          }
+
+          // Wait for reviews to actually change (not just any DOM update)
+          const pageChanged = await this.waitForReviewsToChange(currentReviewsFingerprint);
+
+          if (!pageChanged) {
+            logger.warn('   ⚠️  Reviews did not change after clicking next - may be at end');
+            // Try one more time with longer wait
+            await this.page.waitForTimeout(2000);
+          }
 
           currentPage++;
         } else {
+          logger.info('   📊 No next page button found - reached end of reviews');
           hasMorePages = false;
         }
       }
 
-      logger.info(`   📊 Total reviews scraped: ${allReviews.length}`);
+      // Convert Map to Array and remove internal _extractId
+      const allReviews = Array.from(reviewsMap.values()).map(review => {
+        const { _extractId, ...reviewData } = review;
+        return reviewData;
+      });
+
+      logger.info(`   📊 Total unique reviews scraped: ${allReviews.length}`);
 
       return maxReviews ? allReviews.slice(0, maxReviews) : allReviews;
     } catch (error) {
       logger.error(`❌ Failed to scrape reviews: ${error.message}`);
       return [];
     }
-  }
+  } /**
+   * Wait for reviews to change after pagination click
+   * Daraz doesn't show a loader - old reviews stay visible until new ones load
+   * @param {string} previousFingerprint - Fingerprint of reviews before clicking
+   * @param {number} timeout - Maximum wait time in ms
+   * @returns {Promise<boolean>} True if reviews changed, false if timeout
+   */
+  async waitForReviewsToChange(previousFingerprint, timeout = 8000) {
+    const startTime = Date.now();
+    const selectors = {
+      container: this.selectors.product.reviewItem.container,
+      content: this.selectors.product.reviewItem.content,
+    };
 
-  /**
+    logger.info('   ⏳ Waiting for new reviews to load...');
+
+    while (Date.now() - startTime < timeout) {
+      // Get current fingerprint of all reviews
+      const currentFingerprint = await this.page.evaluate(sel => {
+        const reviews = document.querySelectorAll(sel.container);
+        const fingerprints = [];
+        reviews.forEach(review => {
+          const contentEl = review.querySelector(sel.content);
+          if (contentEl) {
+            fingerprints.push(contentEl.textContent.substring(0, 50).trim());
+          }
+        });
+        return fingerprints.join('|||');
+      }, selectors);
+
+      // Check if reviews have changed
+      if (currentFingerprint !== previousFingerprint && currentFingerprint.length > 0) {
+        logger.info('   ✅ New reviews loaded');
+        await this.page.waitForTimeout(300); // Small delay for DOM to stabilize
+        return true;
+      }
+
+      // Wait a bit before checking again
+      await this.page.waitForTimeout(250);
+    }
+
+    // Timeout - reviews may not have changed
+    logger.warn('   ⚠️  Timeout waiting for reviews to change');
+    return false;
+  } /**
    * Extract reviews from the current page
-   * @returns {Promise<Array>} Array of review objects
+   * @returns {Promise<Array>} Array of review objects matching Review model schema
    */
   async extractReviewsFromPage() {
     try {
@@ -737,45 +887,103 @@ class DarazScraper extends BaseScraper {
         try {
           const $review = $(el);
 
-          // Count stars
-          const starCount = $review.find(reviewSelector.stars).length;
+          // Count FILLED stars only (filled stars have specific image pattern)
+          // Filled: TB19ZvEgfDH8KJjy1XcXXcpdXXa, Empty: TB18ZvEgfDH8KJjy1XcXXcpdXXa or TB17MwRdOqAXuNjy1XdXXaYcVXa
+          let starCount = 0;
+          $review.find(reviewSelector.stars).each((j, star) => {
+            const src = $(star).attr('src') || '';
+            // Check if it's a filled star (contains the filled star pattern)
+            if (src.includes(reviewSelector.filledStarPattern)) {
+              starCount++;
+            }
+          });
 
-          // Extract date
+          // Extract date from top right
           const dateText = cleanText($review.find(reviewSelector.date).text());
 
-          // Extract author
+          // Extract author (first span in .middle)
           const author = cleanText($review.find(reviewSelector.author).text());
 
-          // Check if verified purchase
+          // Check if verified purchase (look for .verify or .verifyImg)
           const isVerified = $review.find(reviewSelector.verified).length > 0;
 
-          // Extract content
+          // Extract review content
           const content = cleanText($review.find(reviewSelector.content).text());
 
-          // Extract review images
+          // Extract review images from background-image style
           const images = [];
-          $review.find(reviewSelector.images).each((j, img) => {
-            const src = $(img).attr('src');
-            if (src) images.push(src);
+          $review.find(reviewSelector.imageContainer).each((j, imgDiv) => {
+            const style = $(imgDiv).attr('style') || '';
+            // Extract URL from background-image: url("...")
+            const urlMatch = style.match(/url\(["']?([^"')]+)["']?\)/);
+            if (urlMatch && urlMatch[1]) {
+              // Convert thumbnail to larger image
+              let imgUrl = urlMatch[1];
+              // Remove _120x120q80 sizing to get full image
+              imgUrl = imgUrl.replace(/_\d+x\d+q\d+\.jpg_\.webp$/, '.jpg');
+              imgUrl = imgUrl.replace(/_\d+x\d+q\d+/, '');
+              images.push(imgUrl);
+            }
           });
 
-          // Extract SKU info (variant purchased)
+          // Extract SKU info (variant purchased) - e.g., "Color Family:Grey"
           const skuInfo = cleanText($review.find(reviewSelector.skuInfo).text());
 
-          // Extract likes count
-          const likesText = $review.find(reviewSelector.likes).text();
+          // Extract likes count from .left-content
+          // Structure: <span class="left-content"><svg>...</svg><span>32</span></span>
+          const likesContainer = $review.find(reviewSelector.likesContainer);
+          const likesText = likesContainer.find('span').last().text();
           const likes = parseInt(likesText, 10) || 0;
 
-          reviews.push({
+          // Extract seller reply if exists
+          let sellerReply = null;
+          const $sellerReplyWrapper = $review.find(reviewSelector.sellerReply);
+          if ($sellerReplyWrapper.length > 0) {
+            sellerReply = {
+              content: cleanText(
+                $sellerReplyWrapper.find(reviewSelector.sellerReplyContent).text()
+              ),
+              date: cleanText($sellerReplyWrapper.find(reviewSelector.sellerReplyDate).text()),
+            };
+          }
+
+          // Create unique identifier for deduplication
+          const reviewId = `${author}_${dateText}_${content.substring(0, 50)}`;
+
+          // Build review data matching Review model schema
+          const reviewData = {
+            _extractId: reviewId, // Internal ID for deduplication during pagination
+
+            // Review model fields
+            reviewer_name: author || 'Anonymous',
             rating: starCount,
-            date: this.parseReviewDate(dateText),
-            author: author || 'Anonymous',
-            is_verified: isVerified,
-            content: content,
+            text: content,
+            review_date: this.parseReviewDate(dateText),
+            helpful_votes: likes,
+            verified_purchase: isVerified,
             images: images,
-            variant_purchased: skuInfo,
-            helpful_count: likes,
-          });
+
+            // Sentiment analysis - to be populated by ML service
+            sentiment_analysis: {
+              needs_analysis: true,
+            },
+
+            // Platform metadata
+            platform_metadata: {
+              original_date_text: dateText, // Keep original date text for reference
+              variant_purchased: skuInfo,
+            },
+
+            // Status
+            is_active: true,
+          };
+
+          // Add seller reply to platform_metadata if exists
+          if (sellerReply && sellerReply.content) {
+            reviewData.platform_metadata.seller_reply = sellerReply;
+          }
+
+          reviews.push(reviewData);
         } catch (reviewError) {
           logger.warn(`   ⚠️  Failed to extract review ${i + 1}:`, reviewError.message);
         }
@@ -786,9 +994,7 @@ class DarazScraper extends BaseScraper {
       logger.error('   ❌ Failed to extract reviews from page:', error.message);
       return [];
     }
-  }
-
-  /**
+  } /**
    * Parse review date string
    * @param {string} dateStr - Date string from review
    * @returns {Date} Parsed date
@@ -797,16 +1003,18 @@ class DarazScraper extends BaseScraper {
     if (!dateStr) return new Date();
 
     try {
-      // Handle relative dates like "2 days ago", "1 month ago"
+      // Handle relative dates like "2 days ago", "1 month ago", "15 hours ago"
       const relativeMatch = dateStr.match(
-        /(\d+)\s+(day|days|week|weeks|month|months|year|years)\s+ago/i
+        /(\d+)\s+(hour|hours|day|days|week|weeks|month|months|year|years)\s+ago/i
       );
       if (relativeMatch) {
         const value = parseInt(relativeMatch[1], 10);
         const unit = relativeMatch[2].toLowerCase();
         const now = new Date();
 
-        if (unit.startsWith('day')) {
+        if (unit.startsWith('hour')) {
+          now.setHours(now.getHours() - value);
+        } else if (unit.startsWith('day')) {
           now.setDate(now.getDate() - value);
         } else if (unit.startsWith('week')) {
           now.setDate(now.getDate() - value * 7);
@@ -819,8 +1027,56 @@ class DarazScraper extends BaseScraper {
         return now;
       }
 
+      // Handle "today" or "yesterday"
+      const lowerDate = dateStr.toLowerCase().trim();
+      if (lowerDate === 'today') {
+        return new Date();
+      }
+      if (lowerDate === 'yesterday') {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        return yesterday;
+      }
+
+      // Handle formats like "05 Sep 2025" or "24 Jul 2025"
+      const dateFormatMatch = dateStr.match(/(\d{1,2})\s+(\w{3})\s+(\d{4})/);
+      if (dateFormatMatch) {
+        const day = parseInt(dateFormatMatch[1], 10);
+        const monthStr = dateFormatMatch[2];
+        const year = parseInt(dateFormatMatch[3], 10);
+
+        const months = {
+          jan: 0,
+          feb: 1,
+          mar: 2,
+          apr: 3,
+          may: 4,
+          jun: 5,
+          jul: 6,
+          aug: 7,
+          sep: 8,
+          oct: 9,
+          nov: 10,
+          dec: 11,
+        };
+
+        const month = months[monthStr.toLowerCase()];
+        if (month !== undefined) {
+          return new Date(year, month, day);
+        }
+      }
+
       // Try parsing standard date format
-      return new Date(dateStr);
+      const parsed = new Date(dateStr);
+
+      // Check if parsed date is valid
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+
+      // Fallback to current date if parsing fails
+      logger.warn(`   ⚠️  Could not parse date: "${dateStr}", using current date`);
+      return new Date();
     } catch {
       return new Date();
     }
@@ -980,40 +1236,69 @@ class DarazScraper extends BaseScraper {
       logger.error('   ❌ Failed to save product:', error.message);
       throw error;
     }
-  }
-
-  /**
+  } /**
    * Save reviews to database
    * @param {string} productId - Product ID
-   * @param {Array} reviews - Reviews to save
-   * @returns {Promise<number>} Number of reviews saved
+   * @param {Array} reviews - Reviews to save (matching Review model schema)
+   * @returns {Promise<{saved: number, skipped: number}>} Count of saved and skipped reviews
    */
   async saveReviews(productId, reviews) {
     try {
       let savedCount = 0;
+      let skippedCount = 0;
 
       for (const review of reviews) {
+        // Check if review already exists using stable unique key
+        // Use reviewer_name + first 100 chars of text (text content doesn't change)
+        const textFingerprint = review.text.substring(0, 100);
+
+        const existingReview = await Review.findOne({
+          product_id: productId,
+          reviewer_name: review.reviewer_name,
+          text: { $regex: `^${textFingerprint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` },
+        });
+
+        if (existingReview) {
+          skippedCount++;
+          continue; // Skip duplicate review
+        }
+
+        // Build review data matching Review model schema
         const reviewData = {
           product_id: productId,
           platform_id: this.platform._id,
-          ...review,
+          platform_name: this.platform.name,
+
+          // Core review fields
+          reviewer_name: review.reviewer_name,
+          rating: review.rating,
+          text: review.text,
+          review_date: review.review_date,
+          helpful_votes: review.helpful_votes || 0,
+          verified_purchase: review.verified_purchase || false,
+          images: review.images || [],
+
+          // Sentiment analysis (to be updated by ML service)
+          sentiment_analysis: review.sentiment_analysis || { needs_analysis: true },
+
+          // Platform metadata
+          platform_metadata: review.platform_metadata || {},
+
+          // Status
+          is_active: review.is_active !== undefined ? review.is_active : true,
         };
 
-        await Review.findOneAndUpdate(
-          {
-            product_id: productId,
-            author: review.author,
-            content: review.content,
-          },
-          reviewData,
-          { upsert: true, new: true }
-        );
-
+        // Insert new review
+        await Review.create(reviewData);
         savedCount++;
       }
 
-      logger.info(`   💾 Saved ${savedCount} reviews`);
-      return savedCount;
+      if (skippedCount > 0) {
+        logger.info(`   💾 Saved ${savedCount} new reviews, skipped ${skippedCount} existing`);
+      } else {
+        logger.info(`   💾 Saved ${savedCount} reviews`);
+      }
+      return { saved: savedCount, skipped: skippedCount };
     } catch (error) {
       logger.error('   ❌ Failed to save reviews:', error.message);
       throw error;
