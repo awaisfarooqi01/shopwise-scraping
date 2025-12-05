@@ -39,6 +39,7 @@ module.exports = {
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
       '--disable-gpu',
+      '--disable-blink-features=AutomationControlled', // Hide automation detection
     ],
 
     // Timeout for browser operations

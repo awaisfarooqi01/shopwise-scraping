@@ -69,7 +69,9 @@ class DarazScraper extends BaseScraper {
       logger.error('❌ Failed to initialize scraper:', error);
       throw error;
     }
-  } /**
+  }
+
+  /**
    * Scrape a single product page
    * @param {string} url - Product URL (e.g., https://www.daraz.pk/products/product-name-i123456-s789.html)
    * @returns {Promise<object>} Product data
@@ -79,26 +81,28 @@ class DarazScraper extends BaseScraper {
       logger.info(`\n🔍 Scraping product: ${url}`);
 
       // Navigate to product page - Daraz loads content dynamically via JavaScript
-      // We use 'load' event and then wait for dynamic content
+      // We use 'domcontentloaded' and then wait for JS content to render
       logger.info(`📄 Navigating to: ${url}`);
       await this.page.goto(url, {
-        waitUntil: 'load', // Wait for full page load event
-        timeout: 45000, // 45 seconds for full page load
+        waitUntil: 'domcontentloaded', // DOM ready, then we wait for JS
+        timeout: 60000, // 60 seconds
       });
 
-      logger.info('   ⏳ Waiting for dynamic content to load...');
+      logger.info('   ⏳ Waiting for dynamic content...');
 
       // Wait 5 seconds for JavaScript to render dynamic content
-      // This is necessary because Daraz loads price, specs, etc. via JS after page load
       await this.page.waitForTimeout(5000);
 
-      // Try to wait for price (but don't fail if not found immediately)
-      await this.page.waitForSelector('.pdp-price', { timeout: 5000 }).catch(() => {
-        logger.warn('   ⚠️  Price element not visible yet, waiting more...');
-      });
+      // Try to wait for price element (loaded via JS)
+      const priceLoaded = await this.page
+        .waitForSelector('.pdp-price', { timeout: 10000 })
+        .then(() => true)
+        .catch(() => false);
 
-      // Additional wait if price wasn't found
-      await this.page.waitForTimeout(2000);
+      if (!priceLoaded) {
+        logger.warn('   ⚠️  Price not loaded, waiting 5s more...');
+        await this.page.waitForTimeout(5000);
+      }
 
       logger.info('   ✅ Page content loaded');
 

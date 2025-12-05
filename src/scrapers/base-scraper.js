@@ -28,7 +28,7 @@ class BaseScraper {
   async initBrowser() {
     try {
       logger.info('🚀 Initializing browser...');
-      
+
       this.browser = await playwright[this.config.browser.type].launch({
         headless: this.config.browser.headless,
         args: this.config.browser.args,
@@ -42,13 +42,38 @@ class BaseScraper {
         timezoneId: this.config.browser.timezoneId,
       });
 
+      // Add anti-detection scripts to bypass bot detection
+      await this.context.addInitScript(() => {
+        // Hide webdriver flag
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => undefined,
+        });
+
+        // Mock plugins array
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => [1, 2, 3, 4, 5],
+        });
+
+        // Mock languages
+        Object.defineProperty(navigator, 'languages', {
+          get: () => ['en-US', 'en', 'ur-PK'],
+        });
+
+        // Mock permissions
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = parameters =>
+          parameters.name === 'notifications'
+            ? Promise.resolve({ state: Notification.permission })
+            : originalQuery(parameters);
+      });
+
       this.page = await this.context.newPage();
-      
+
       // Set default timeout
       this.page.setDefaultTimeout(this.config.page.timeout);
-      
+
       logger.info('✅ Browser initialized successfully');
-      
+
       return this.page;
     } catch (error) {
       logger.error('❌ Failed to initialize browser:', error);
@@ -64,7 +89,7 @@ class BaseScraper {
       if (this.page) await this.page.close();
       if (this.context) await this.context.close();
       if (this.browser) await this.browser.close();
-      
+
       logger.info('🔒 Browser closed');
     } catch (error) {
       logger.error('Error closing browser:', error);
@@ -78,30 +103,30 @@ class BaseScraper {
   async goto(url) {
     try {
       this.stats.pagesVisited++;
-      
+
       logger.info(`📄 Navigating to: ${url}`);
-      
+
       await this.page.goto(url, {
         waitUntil: this.config.page.waitUntil,
         timeout: this.config.page.timeout,
       });
-      
+
       // Extra wait for dynamic content
       if (this.config.page.extraWait) {
         await this.page.waitForTimeout(this.config.page.extraWait);
       }
-      
+
       logger.info('✅ Page loaded');
-      
+
       return this.page;
     } catch (error) {
       logger.error(`❌ Failed to load page: ${url}`, error);
-      
+
       // Take screenshot on error
       if (this.config.page.screenshotOnError) {
         await this.takeScreenshot('error');
       }
-      
+
       throw error;
     }
   }
@@ -113,28 +138,23 @@ class BaseScraper {
    */
   async extractText(selector, options = {}) {
     try {
-      const {
-        trim = true,
-        timeout = 5000,
-        required = false,
-        multiple = false,
-      } = options;
+      const { trim = true, timeout = 5000, required = false, multiple = false } = options;
 
       if (multiple) {
         const elements = await this.page.$$(selector);
         const texts = [];
-        
+
         for (const element of elements) {
           let text = await element.textContent();
           if (trim) text = text?.trim();
           if (text) texts.push(text);
         }
-        
+
         return texts;
       }
 
       const element = await this.page.$(selector);
-      
+
       if (!element) {
         if (required) {
           throw new Error(`Required element not found: ${selector}`);
@@ -144,7 +164,7 @@ class BaseScraper {
 
       let text = await element.textContent();
       if (trim) text = text?.trim();
-      
+
       return text;
     } catch (error) {
       logger.warn(`Failed to extract text from ${selector}:`, error.message);
@@ -160,26 +180,22 @@ class BaseScraper {
    */
   async extractAttribute(selector, attribute, options = {}) {
     try {
-      const {
-        timeout = 5000,
-        required = false,
-        multiple = false,
-      } = options;
+      const { timeout = 5000, required = false, multiple = false } = options;
 
       if (multiple) {
         const elements = await this.page.$$(selector);
         const attrs = [];
-        
+
         for (const element of elements) {
           const attr = await element.getAttribute(attribute);
           if (attr) attrs.push(attr);
         }
-        
+
         return attrs;
       }
 
       const element = await this.page.$(selector);
-      
+
       if (!element) {
         if (required) {
           throw new Error(`Required element not found: ${selector}`);
@@ -234,10 +250,10 @@ class BaseScraper {
       const html = await this.page.content();
       const fs = require('fs');
       const path = `${this.config.output.htmlDir}/${name}-${Date.now()}.html`;
-      
+
       fs.writeFileSync(path, html);
       logger.info(`💾 HTML saved: ${path}`);
-      
+
       return path;
     } catch (error) {
       logger.error('Failed to save HTML:', error);
@@ -253,9 +269,9 @@ class BaseScraper {
   async randomDelay(min = null, max = null) {
     min = min || this.config.rateLimit.randomDelay.min;
     max = max || this.config.rateLimit.randomDelay.max;
-    
+
     const delay = Math.floor(Math.random() * (max - min + 1)) + min;
-    
+
     logger.debug(`⏳ Waiting ${delay}ms...`);
     await this.page.waitForTimeout(delay);
   }
@@ -266,8 +282,8 @@ class BaseScraper {
   getStats() {
     return {
       ...this.stats,
-      duration: this.stats.endTime 
-        ? this.stats.endTime - this.stats.startTime 
+      duration: this.stats.endTime
+        ? this.stats.endTime - this.stats.startTime
         : Date.now() - this.stats.startTime,
       successRate: this.stats.productsScraped / (this.stats.productsScraped + this.stats.errors),
     };
@@ -279,7 +295,7 @@ class BaseScraper {
   logStats() {
     const stats = this.getStats();
     const duration = Math.round(stats.duration / 1000);
-    
+
     logger.info('\n📊 Scraping Statistics:');
     logger.info(`   Pages Visited: ${stats.pagesVisited}`);
     logger.info(`   Products Scraped: ${stats.productsScraped}`);
