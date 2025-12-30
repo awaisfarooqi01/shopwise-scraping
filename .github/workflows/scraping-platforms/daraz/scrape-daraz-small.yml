@@ -1,0 +1,100 @@
+# Daraz Small Categories Scraper
+#
+# Quick workflow for scraping smaller Daraz categories that fit in a single job:
+#   - Tablet Accessories (~10k products)
+#   - Car Mounts (~8k products)
+#   - Parts & Tools (~15k products)
+#
+# These categories can complete within 6 hours without splitting
+
+name: Scrape Daraz - Small Categories
+
+on:
+  workflow_dispatch:
+    inputs:
+      category:
+        description: 'Category to scrape'
+        required: true
+        type: choice
+        options:
+          - 'Tablet Accessories'
+          - 'Car Mounts'
+          - 'Parts & Tools'
+          - 'all-small'
+      include_reviews:
+        description: 'Include review scraping'
+        required: false
+        type: boolean
+        default: true
+      max_pages:
+        description: 'Max pages to scrape (0 = unlimited)'
+        required: false
+        type: number
+        default: 0
+      max_review_pages:
+        description: 'Max review pages per product'
+        required: false
+        type: number
+        default: 3
+
+env:
+  NODE_ENV: production
+
+jobs:
+  tablet-accessories:
+    name: 📱 Tablet Accessories
+    if: ${{ inputs.category == 'Tablet Accessories' || inputs.category == 'all-small' }}
+    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    with:
+      category_name: 'Tablet Accessories'
+      start_page: 1
+      end_page: ${{ inputs.max_pages }}
+      include_reviews: ${{ inputs.include_reviews }}
+      max_review_pages: ${{ inputs.max_review_pages }}
+    secrets:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+
+  car-mounts:
+    name: 🚗 Car Mounts
+    if: ${{ inputs.category == 'Car Mounts' || inputs.category == 'all-small' }}
+    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    with:
+      category_name: 'Car Mounts'
+      start_page: 1
+      end_page: ${{ inputs.max_pages }}
+      include_reviews: ${{ inputs.include_reviews }}
+      max_review_pages: ${{ inputs.max_review_pages }}
+    secrets:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+
+  parts-tools:
+    name: 🔧 Parts & Tools
+    if: ${{ inputs.category == 'Parts & Tools' || inputs.category == 'all-small' }}
+    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    with:
+      category_name: 'Parts & Tools'
+      start_page: 1
+      end_page: ${{ inputs.max_pages }}
+      include_reviews: ${{ inputs.include_reviews }}
+      max_review_pages: ${{ inputs.max_review_pages }}
+    secrets:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+
+  summary:
+    name: 📊 Summary
+    runs-on: ubuntu-latest
+    if: always() && inputs.category == 'all-small'
+    needs: [tablet-accessories, car-mounts, parts-tools]
+    steps:
+      - name: Scraping Summary
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "📦 SMALL CATEGORIES SCRAPING COMPLETE"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "Results:"
+          echo "  • Tablet Accessories: ${{ needs.tablet-accessories.result || 'skipped' }}"
+          echo "  • Car Mounts: ${{ needs.car-mounts.result || 'skipped' }}"
+          echo "  • Parts & Tools: ${{ needs.parts-tools.result || 'skipped' }}"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"

@@ -647,6 +647,8 @@ class DarazScraper extends BaseScraper {
    * @param {boolean} [options.includeReviews=true] - Whether to scrape reviews for each product
    * @param {number} [options.maxReviewPages=5] - Maximum review pages per product
    * @param {string} [options.name=null] - Category name for logging (auto-detected from URL if not provided)
+   * @param {number} [options.startPage=1] - Starting page number (1-indexed)
+   * @param {number} [options.endPage=null] - Ending page number (null = unlimited)
    * @returns {Promise<Array>} Array of scraped products with their reviews
    */ async scrapeCategoryByUrl(url, options = {}) {
     const {
@@ -655,6 +657,8 @@ class DarazScraper extends BaseScraper {
       includeReviews = false, // Default to false (reviews not yet implemented for category mode)
       maxReviewPages = 5,
       name = null,
+      startPage = 1,
+      endPage = null,
     } = options;
 
     try {
@@ -679,12 +683,24 @@ class DarazScraper extends BaseScraper {
 
       logger.info(`\n🏷️  Scraping Daraz category: ${categoryName}`);
       logger.info(`📍 URL: ${url}`);
+
+      // Log page range if specified
+      const pageRangeStr = endPage
+        ? `pages ${startPage}-${endPage}`
+        : startPage > 1
+          ? `pages ${startPage}+`
+          : `maxPages=${maxPages}`;
       logger.info(
-        `⚙️  Options: maxPages=${maxPages}, maxProducts=${maxProducts || 'all'}, includeReviews=${includeReviews}`
+        `⚙️  Options: ${pageRangeStr}, maxProducts=${maxProducts || 'all'}, includeReviews=${includeReviews}`
       );
 
       // Step 1: Get all product URLs from listing pages
-      const productUrls = await this.scrapeListingPage(url, { maxPages, maxProducts });
+      const productUrls = await this.scrapeListingPage(url, {
+        maxPages,
+        maxProducts,
+        startPage,
+        endPage,
+      });
 
       if (productUrls.length === 0) {
         logger.warn(`⚠️  No products found for category: ${categoryName}`);
@@ -714,17 +730,25 @@ class DarazScraper extends BaseScraper {
           // Save product to database
           const savedProduct = await this.saveProduct(productData);
           scrapedProducts.push(savedProduct);
+          logger.info(`   ✅ Product saved: ${savedProduct.name}`);
 
-          logger.info(`   ✅ Product saved: ${savedProduct.name}`); // Scrape reviews if enabled
+          // Scrape reviews if enabled
           if (includeReviews) {
             try {
               logger.info(`   💬 Scraping reviews (max ${maxReviewPages} pages)...`);
-              // Note: scrapeReviews() method needs to be implemented
-              // For now, skip reviews with a warning
-              logger.warn(`   ⚠️  Review scraping not yet integrated in category mode`);
-              logger.warn(
-                `   💡 To scrape reviews, use test-daraz-reviews.js for individual products`
-              );
+              const reviews = await this.scrapeReviews(productUrl, {
+                maxPages: maxReviewPages,
+                scrollToReviews: true,
+              });
+
+              if (reviews.length > 0) {
+                const saveResult = await this.saveReviews(savedProduct._id, reviews);
+                logger.info(
+                  `   ✅ Reviews: ${saveResult.saved} saved, ${saveResult.skipped} skipped`
+                );
+              } else {
+                logger.info(`   ℹ️  No reviews found for this product`);
+              }
             } catch (reviewError) {
               logger.error(`   ⚠️  Failed to scrape reviews: ${reviewError.message}`);
               // Continue even if reviews fail
@@ -772,12 +796,31 @@ class DarazScraper extends BaseScraper {
    * @returns {Promise<Array>} Array of product URLs
    */
   async scrapeListingPage(url, options = {}) {
-    const { maxPages = 5, maxProducts = null } = options;
+    const { maxPages = 5, maxProducts = null, startPage = 1, endPage = null } = options;
+
+    // Calculate effective max pages based on startPage and endPage
+    let effectiveMaxPages = maxPages;
+    if (endPage) {
+      effectiveMaxPages = endPage; // We'll scrape up to endPage
+    }
 
     try {
       logger.info(`\n📋 Scraping listing page: ${url}`);
+      if (startPage > 1 || endPage) {
+        logger.info(`   🔢 Page range: ${startPage} to ${endPage || effectiveMaxPages}`);
+      }
 
-      await this.goto(url);
+      // Navigate to the starting page
+      let startUrl = url;
+      if (startPage > 1) {
+        // Append page parameter to URL
+        const urlObj = new URL(url);
+        urlObj.searchParams.set('page', startPage.toString());
+        startUrl = urlObj.toString();
+        logger.info(`   📍 Starting from page ${startPage}: ${startUrl}`);
+      }
+
+      await this.goto(startUrl);
 
       // Wait for products to load
       await this.page.waitForSelector(this.selectors.listing.productCard, {
@@ -785,10 +828,16 @@ class DarazScraper extends BaseScraper {
       });
 
       const allProductUrls = [];
-      let currentPage = 1;
+      let currentPage = startPage;
       let hasMorePages = true;
 
-      while (hasMorePages && currentPage <= maxPages) {
+      while (hasMorePages && currentPage <= effectiveMaxPages) {
+        // Skip pages before startPage (shouldn't happen with direct URL, but safety check)
+        if (currentPage < startPage) {
+          currentPage++;
+          continue;
+        }
+
         logger.info(`   📄 Scraping page ${currentPage}...`);
 
         // Extract product URLs from current page
@@ -803,10 +852,16 @@ class DarazScraper extends BaseScraper {
           break;
         }
 
+        // Check if we've reached the end page
+        if (endPage && currentPage >= endPage) {
+          logger.info(`   📊 Reached end page limit (${endPage})`);
+          break;
+        }
+
         // Check for next page
         const nextButton = await this.page.$(this.selectors.listing.pagination.nextButton);
 
-        if (nextButton && currentPage < maxPages) {
+        if (nextButton && currentPage < effectiveMaxPages) {
           await nextButton.click();
           await this.page.waitForTimeout(2000);
           await this.page.waitForSelector(this.selectors.listing.productCard, {
@@ -1014,6 +1069,456 @@ class DarazScraper extends BaseScraper {
     } catch (error) {
       logger.error('   ❌ Failed to save reviews:', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * Scrape reviews from a product page with pagination
+   * @param {string} url - Product URL
+   * @param {Object} options - Scraping options
+   * @param {number} [options.maxPages=5] - Maximum review pages to scrape
+   * @param {number} [options.maxReviews=null] - Maximum reviews to collect (null = all)
+   * @param {boolean} [options.scrollToReviews=true] - Whether to scroll to reviews section first
+   * @returns {Promise<Array>} Array of review objects matching Review model schema
+   */
+  async scrapeReviews(url, options = {}) {
+    const { maxPages = 5, maxReviews = null, scrollToReviews = true } = options;
+
+    try {
+      logger.info(`\n💬 Scraping reviews from: ${url}`);
+      logger.info(`   ⚙️  Options: maxPages=${maxPages}, maxReviews=${maxReviews || 'all'}`);
+
+      // Navigate to product page if not already there
+      const currentUrl = this.page.url();
+      if (!currentUrl.includes(url.split('/products/')[1]?.split('.html')[0] || '')) {
+        await this.page.goto(url, {
+          waitUntil: 'domcontentloaded',
+          timeout: 60000,
+        });
+        await this.page.waitForTimeout(3000);
+      }
+
+      // Scroll to reviews section if requested
+      if (scrollToReviews) {
+        logger.info('   📜 Scrolling to reviews section...');
+        await this.scrollToReviews();
+      }
+
+      // Wait for reviews container to load
+      const reviewsFound = await this.page
+        .waitForSelector(this.selectors.product.reviews.container, { timeout: 10000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (!reviewsFound) {
+        logger.warn('   ⚠️  Reviews section not found');
+        return [];
+      }
+
+      // Collect reviews across multiple pages
+      const allReviews = [];
+      let currentPage = 1;
+      let hasMorePages = true;
+
+      while (hasMorePages && currentPage <= maxPages) {
+        logger.info(`   📄 Extracting reviews from page ${currentPage}...`);
+
+        // Wait for reviews to load on current page
+        await this.page.waitForTimeout(1500);
+
+        // Extract reviews from current page
+        const pageReviews = await this.extractReviewsFromPage();
+
+        if (pageReviews.length === 0) {
+          logger.info(`   ℹ️  No reviews found on page ${currentPage}`);
+          break;
+        }
+
+        // Add unique reviews (avoid duplicates)
+        const newReviews = pageReviews.filter(
+          review =>
+            !allReviews.some(
+              existing =>
+                existing.reviewer_name === review.reviewer_name &&
+                existing.text.substring(0, 50) === review.text.substring(0, 50)
+            )
+        );
+
+        allReviews.push(...newReviews);
+        logger.info(
+          `   ✅ Page ${currentPage}: Found ${pageReviews.length} reviews (${newReviews.length} new, ${allReviews.length} total)`
+        );
+
+        // Check if we've reached max reviews limit
+        if (maxReviews && allReviews.length >= maxReviews) {
+          logger.info(`   📊 Reached max reviews limit (${maxReviews})`);
+          break;
+        } // Try to go to next page
+        if (currentPage < maxPages) {
+          hasMorePages = await this.goToNextReviewPage();
+          if (hasMorePages) {
+            currentPage++;
+            // Small additional wait for DOM to stabilize
+            await this.page.waitForTimeout(500);
+          }
+        } else {
+          hasMorePages = false;
+        }
+      }
+
+      logger.info(`   ✅ Total reviews scraped: ${allReviews.length}`);
+      return maxReviews ? allReviews.slice(0, maxReviews) : allReviews;
+    } catch (error) {
+      logger.error(`   ❌ Failed to scrape reviews: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Scroll to reviews section on product page
+   * @returns {Promise<void>}
+   */
+  async scrollToReviews() {
+    try {
+      // Try to find and scroll to reviews section
+      const reviewsSection = await this.page.$(this.selectors.product.reviews.container);
+
+      if (reviewsSection) {
+        await reviewsSection.scrollIntoViewIfNeeded();
+        await this.page.waitForTimeout(1000);
+      } else {
+        // Fallback: scroll down the page to trigger lazy loading
+        await this.page.evaluate(() => {
+          window.scrollTo(0, document.body.scrollHeight * 0.6);
+        });
+        await this.page.waitForTimeout(2000);
+      }
+    } catch (error) {
+      logger.warn(`   ⚠️  Failed to scroll to reviews: ${error.message}`);
+    }
+  }
+  /**
+   * Extract reviews from current page
+   * @returns {Promise<Array>} Array of review objects
+   */
+  async extractReviewsFromPage() {
+    try {
+      const html = await this.page.content();
+      const $ = cheerio.load(html);
+      const reviews = [];
+
+      // Get all review items (excluding seller replies which are inside .seller-reply-wrapper)
+      const reviewItems = $('.mod-reviews > .item');
+      logger.info(`   🔍 Found ${reviewItems.length} review elements`);
+
+      reviewItems.each((index, element) => {
+        try {
+          const $review = $(element);
+
+          // Skip if this is a seller reply wrapper (not a customer review)
+          if ($review.hasClass('seller-reply-wrapper')) {
+            return;
+          }
+
+          // Extract rating from stars
+          const rating = this.extractReviewRating($, $review);
+
+          // Extract reviewer name
+          const reviewerName = this.extractReviewerName($, $review);
+
+          // Extract review date
+          const dateText = cleanText($review.find(this.selectors.product.reviewItem.date).text());
+          const reviewDate = this.parseReviewDate(dateText);
+
+          // Extract review text
+          const reviewText = cleanText(
+            $review.find(this.selectors.product.reviewItem.content).first().text()
+          );
+
+          // Check verified purchase
+          const isVerified = $review.find(this.selectors.product.reviewItem.verified).length > 0;
+
+          // Extract review images
+          const images = this.extractReviewImages($, $review);
+
+          // Extract helpful votes (likes)
+          const helpfulVotes = this.extractHelpfulVotes($, $review);
+
+          // Extract variant/SKU info
+          const variantInfo = cleanText(
+            $review.find(this.selectors.product.reviewItem.skuInfo).text()
+          );
+
+          // Extract seller reply if exists (it's a sibling element)
+          const sellerReply = this.extractSellerReply($, $review);
+
+          // Only add review if it has meaningful content
+          if (reviewerName || reviewText) {
+            reviews.push({
+              reviewer_name: reviewerName || 'Anonymous',
+              rating: rating,
+              text: reviewText || '',
+              review_date: reviewDate,
+              verified_purchase: isVerified,
+              helpful_votes: helpfulVotes,
+              images: images,
+              platform_metadata: {
+                original_date_text: dateText,
+                variant_purchased: variantInfo || null,
+                seller_reply: sellerReply,
+              },
+              sentiment_analysis: { needs_analysis: true },
+              is_active: true,
+            });
+          }
+        } catch (itemError) {
+          logger.warn(`   ⚠️  Failed to extract review ${index + 1}: ${itemError.message}`);
+        }
+      });
+
+      return reviews;
+    } catch (error) {
+      logger.error(`   ❌ Failed to extract reviews from page: ${error.message}`);
+      return [];
+    }
+  }
+  /**
+   * Extract rating from review element by counting filled stars
+   * @param {CheerioAPI} $ - Cheerio instance
+   * @param {Cheerio} $review - Cheerio element for the review
+   * @returns {number} Rating (1-5)
+   */
+  extractReviewRating($, $review) {
+    try {
+      const starsContainer = $review.find(this.selectors.product.reviewItem.starsContainer);
+      const stars = starsContainer.find('img.star');
+      let rating = 0;
+
+      stars.each((i, star) => {
+        const src = $(star).attr('src') || '';
+        // Filled star pattern from selectors (TB19ZvEgfDH8KJjy1XcXXcpdXXa = filled star)
+        if (src.includes(this.selectors.product.reviewItem.filledStarPattern)) {
+          rating++;
+        }
+      });
+
+      return rating > 0 ? rating : 5; // Default to 5 if can't determine
+    } catch (error) {
+      return 5;
+    }
+  }
+
+  /**
+   * Extract reviewer name from review element
+   * @param {CheerioAPI} $ - Cheerio instance
+   * @param {Cheerio} $review - Cheerio element for the review
+   * @returns {string} Reviewer name
+   */
+  extractReviewerName($, $review) {
+    try {
+      // Author is in .middle > span:first-child according to selectors
+      const authorEl = $review.find(this.selectors.product.reviewItem.author);
+      let name = cleanText(authorEl.text());
+
+      // Clean up common prefixes
+      if (name.startsWith('By ')) {
+        name = name.substring(3);
+      }
+
+      return name || 'Anonymous';
+    } catch (error) {
+      return 'Anonymous';
+    }
+  }
+
+  /**
+   * Parse review date from text
+   * @param {string} dateText - Date text (e.g., "25 Dec 2024", "2 days ago")
+   * @returns {Date} Parsed date
+   */
+  parseReviewDate(dateText) {
+    try {
+      if (!dateText) return new Date();
+
+      // Try direct date parsing first
+      const directDate = new Date(dateText);
+      if (!isNaN(directDate.getTime())) {
+        return directDate;
+      }
+
+      // Handle relative dates
+      const lowerText = dateText.toLowerCase();
+      const now = new Date();
+
+      if (lowerText.includes('today') || lowerText.includes('just now')) {
+        return now;
+      }
+
+      if (lowerText.includes('yesterday')) {
+        return new Date(now.setDate(now.getDate() - 1));
+      }
+
+      // "X days ago" pattern
+      const daysMatch = lowerText.match(/(\d+)\s*days?\s*ago/);
+      if (daysMatch) {
+        return new Date(now.setDate(now.getDate() - parseInt(daysMatch[1], 10)));
+      }
+
+      // "X weeks ago" pattern
+      const weeksMatch = lowerText.match(/(\d+)\s*weeks?\s*ago/);
+      if (weeksMatch) {
+        return new Date(now.setDate(now.getDate() - parseInt(weeksMatch[1], 10) * 7));
+      }
+
+      // "X months ago" pattern
+      const monthsMatch = lowerText.match(/(\d+)\s*months?\s*ago/);
+      if (monthsMatch) {
+        return new Date(now.setMonth(now.getMonth() - parseInt(monthsMatch[1], 10)));
+      }
+
+      // Try common date formats: "25 Dec 2024", "Dec 25, 2024"
+      const datePatterns = [
+        /(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/, // 25 Dec 2024
+        /([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/, // Dec 25, 2024
+      ];
+
+      for (const pattern of datePatterns) {
+        const match = dateText.match(pattern);
+        if (match) {
+          const parsed = new Date(dateText);
+          if (!isNaN(parsed.getTime())) {
+            return parsed;
+          }
+        }
+      }
+
+      return new Date();
+    } catch (error) {
+      return new Date();
+    }
+  } /**
+   * Extract images from review
+   * @param {CheerioAPI} $ - Cheerio instance
+   * @param {Cheerio} $review - Cheerio element for the review
+   * @returns {Array<string>} Array of image URLs
+   */
+  extractReviewImages($, $review) {
+    const images = [];
+
+    try {
+      // Daraz review images use background-image style in .image div
+      $review.find(this.selectors.product.reviewItem.imageContainer).each((i, el) => {
+        const style = $(el).attr('style') || '';
+        const urlMatch = style.match(/url\(['"]?([^'")\s]+)['"]?\)/);
+        if (urlMatch && urlMatch[1]) {
+          images.push(urlMatch[1]); // Just push the URL string
+        }
+      });
+
+      // Also check for img tags as fallback
+      $review.find('.review-image img').each((i, el) => {
+        const src = $(el).attr('src');
+        if (src && !images.includes(src)) {
+          images.push(src); // Just push the URL string
+        }
+      });
+    } catch (error) {
+      logger.warn(`   ⚠️  Failed to extract review images: ${error.message}`);
+    }
+
+    return images;
+  }
+
+  /**
+   * Extract helpful votes count from review
+   * @param {CheerioAPI} $ - Cheerio instance
+   * @param {Cheerio} $review - Cheerio element for the review
+   * @returns {number} Helpful votes count
+   */
+  extractHelpfulVotes($, $review) {
+    try {
+      // Likes are in .left-content > span (the last span contains the count)
+      const likesContainer = $review.find('.item-content .left-content');
+      const likesText = likesContainer.find('span').last().text();
+      const match = likesText.match(/(\d+)/);
+      return match ? parseInt(match[1], 10) : 0;
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  /**
+   * Extract seller reply from review if exists
+   * @param {CheerioAPI} $ - Cheerio instance
+   * @param {Cheerio} $review - Cheerio element for the review
+   * @returns {Object|null} Seller reply object or null
+   */
+  extractSellerReply($, $review) {
+    try {
+      // Seller reply is a sibling element after the review item
+      const replyEl = $review.next('.seller-reply-wrapper');
+      if (replyEl.length === 0) return null;
+
+      const content = cleanText(replyEl.find('.item-content .content').text());
+      const dateText = cleanText(replyEl.find('.item-title span').text());
+
+      if (!content) return null;
+
+      return {
+        content: content,
+        date: this.parseReviewDate(dateText),
+        original_date_text: dateText,
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+  /**
+   * Navigate to next review page
+   * @returns {Promise<boolean>} True if navigation successful, false if no more pages
+   */
+  async goToNextReviewPage() {
+    try {
+      // Check if next button exists and is enabled
+      const nextButton = await this.page.$(this.selectors.product.reviewPagination.nextButton);
+
+      if (!nextButton) {
+        logger.info('   ℹ️  No next page button found');
+        return false;
+      }
+
+      // Get the current first review content to detect when new reviews load
+      const firstReviewBefore = await this.page.evaluate(() => {
+        const firstReview = document.querySelector('.mod-reviews .item .content');
+        return firstReview ? firstReview.textContent.substring(0, 50) : null;
+      });
+
+      // Click next button
+      await nextButton.click();
+      logger.info('   ➡️  Clicked next page button');
+
+      // Wait for reviews to change (since there's no loader, we wait for content change)
+      try {
+        await this.page.waitForFunction(
+          previousContent => {
+            const firstReview = document.querySelector('.mod-reviews .item .content');
+            const currentContent = firstReview ? firstReview.textContent.substring(0, 50) : null;
+            return currentContent !== previousContent;
+          },
+          { timeout: 10000 },
+          firstReviewBefore
+        );
+        logger.info('   ✅ New reviews loaded');
+      } catch (e) {
+        // Fallback: just wait a bit
+        logger.warn('   ⚠️  Timeout waiting for new reviews, using fallback delay');
+        await this.page.waitForTimeout(2000);
+      }
+
+      return true;
+    } catch (error) {
+      logger.warn(`   ⚠️  Failed to navigate to next review page: ${error.message}`);
+      return false;
     }
   }
 

@@ -1,0 +1,114 @@
+# Daraz Cables & Converters Scraper
+#
+# Dedicated workflow for scraping Cables & Converters category (~40k products)
+# Split into 4 sequential jobs of 250 pages each
+#
+# Estimated time: ~16-20 hours total (4-5 hours per job)
+# Products per page: ~40
+# Total estimated products: ~40,000
+
+name: Scrape Daraz - Cables & Converters
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_batch:
+        description: 'Starting batch number (1-4)'
+        required: false
+        type: number
+        default: 1
+      end_batch:
+        description: 'Ending batch number (1-4, 0 = all remaining)'
+        required: false
+        type: number
+        default: 0
+      include_reviews:
+        description: 'Include review scraping'
+        required: false
+        type: boolean
+        default: true
+      max_review_pages:
+        description: 'Max review pages per product (0 = unlimited)'
+        required: false
+        type: number
+        default: 0
+
+env:
+  NODE_ENV: production
+  CATEGORY_NAME: 'Cables & Converters'
+
+jobs:
+  batch-1:
+    name: 🔌 Cables & Converters (Pages 1-250)
+    if: ${{ inputs.start_batch <= 1 && (inputs.end_batch == 0 || inputs.end_batch >= 1) }}
+    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    with:
+      category_name: 'Cables & Converters'
+      start_page: 1
+      end_page: 250
+      include_reviews: ${{ inputs.include_reviews }}
+      max_review_pages: ${{ inputs.max_review_pages }}
+    secrets:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+
+  batch-2:
+    name: 🔌 Cables & Converters (Pages 251-500)
+    if: ${{ inputs.start_batch <= 2 && (inputs.end_batch == 0 || inputs.end_batch >= 2) }}
+    needs: batch-1
+    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    with:
+      category_name: 'Cables & Converters'
+      start_page: 251
+      end_page: 500
+      include_reviews: ${{ inputs.include_reviews }}
+      max_review_pages: ${{ inputs.max_review_pages }}
+    secrets:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+
+  batch-3:
+    name: 🔌 Cables & Converters (Pages 501-750)
+    if: ${{ inputs.start_batch <= 3 && (inputs.end_batch == 0 || inputs.end_batch >= 3) }}
+    needs: batch-2
+    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    with:
+      category_name: 'Cables & Converters'
+      start_page: 501
+      end_page: 750
+      include_reviews: ${{ inputs.include_reviews }}
+      max_review_pages: ${{ inputs.max_review_pages }}
+    secrets:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+
+  batch-4:
+    name: 🔌 Cables & Converters (Pages 751+)
+    if: ${{ inputs.start_batch <= 4 && (inputs.end_batch == 0 || inputs.end_batch >= 4) }}
+    needs: batch-3
+    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    with:
+      category_name: 'Cables & Converters'
+      start_page: 751
+      end_page: 0 # Till end
+      include_reviews: ${{ inputs.include_reviews }}
+      max_review_pages: ${{ inputs.max_review_pages }}
+    secrets:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+
+  summary:
+    name: 📊 Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [batch-1, batch-2, batch-3, batch-4]
+    steps:
+      - name: Scraping Summary
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "🔌 CABLES & CONVERTERS SCRAPING COMPLETE"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "Batch Results:"
+          echo "  • Batch 1 (1-250): ${{ needs.batch-1.result || 'skipped' }}"
+          echo "  • Batch 2 (251-500): ${{ needs.batch-2.result || 'skipped' }}"
+          echo "  • Batch 3 (501-750): ${{ needs.batch-3.result || 'skipped' }}"
+          echo "  • Batch 4 (751+): ${{ needs.batch-4.result || 'skipped' }}"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"

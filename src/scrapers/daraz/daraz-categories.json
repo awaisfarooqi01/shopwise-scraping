@@ -1,0 +1,41 @@
+{
+  "categories": [
+    {
+      "name": "Tablet Accessories",
+      "base": "https://www.daraz.pk/catalog?spm=a2a0e.searchlist.cate_1_1.1.252944a1pMlT0j&q=Tablet%20Accessories&from=hp_categories&src=all_channel",
+      "enabled": true,
+      "priority": 1
+    },
+    {
+      "name": "Cables & Converters",
+      "base": "https://www.daraz.pk/catalog?spm=a2a0e.searchlist.cate_1_1.2.252944a1pMlT0j&q=Cables%20%26%20Converters&from=hp_categories&src=all_channel",
+      "enabled": true,
+      "priority": 2
+    },
+    {
+      "name": "Phone Cases",
+      "base": "https://www.daraz.pk/catalog?spm=a2a0e.searchlist.cate_1_1.3.252944a1pMlT0j&q=Phone%20Cases&from=hp_categories&src=all_channel",
+      "enabled": true,
+      "priority": 3
+    },
+    {
+      "name": "Car Mounts",
+      "base": "https://www.daraz.pk/catalog?spm=a2a0e.searchlist.cate_1_1.4.252944a1pMlT0j&q=Car%20Mounts&from=hp_categories&src=all_channel",
+      "enabled": true,
+      "priority": 4
+    },
+    {
+      "name": "Parts & Tools",
+      "base": "https://www.daraz.pk/catalog?spm=a2a0e.searchlist.cate_1_1.5.252944a1pMlT0j&q=Parts%20%26%20Tools&from=hp_categories&src=all_channel",
+      "enabled": true,
+      "priority": 5
+    }
+  ],
+  "settings": {
+    "delayBetweenCategories": 5000,
+    "delayBetweenPages": 2000,
+    "maxRetries": 3,
+    "continueOnError": true,
+    "requestsPerMinute": 30
+  }
+}
