@@ -1,5 +1,5 @@
 # PriceOye Scraper - GitHub Actions Workflow
-# 
+#
 # This workflow runs the PriceOye scraper on a schedule or manually.
 # It scrapes products from priceoye.pk and saves them to MongoDB.
 #
@@ -45,7 +45,7 @@ on:
   schedule:
     # Run full scrape every Sunday at 2 AM UTC
     - cron: '0 2 * * 0'
-    
+
     # Run mobiles category every day at 3 AM UTC
     # - cron: '0 3 * * *'
 
@@ -59,7 +59,7 @@ jobs:
   scrape:
     name: Scrape PriceOye Products
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hours max
+    timeout-minutes: 360 # 6 hours max
 
     steps:
       - name: 📥 Checkout Repository
@@ -98,23 +98,23 @@ jobs:
         run: |
           # Build command with options
           CMD="node scripts/scrape-priceoye.js"
-          
+
           if [ -n "${{ github.event.inputs.category }}" ]; then
             CMD="$CMD --category '${{ github.event.inputs.category }}'"
           fi
-          
+
           if [ -n "${{ github.event.inputs.brand }}" ]; then
             CMD="$CMD --brand '${{ github.event.inputs.brand }}'"
           fi
-          
+
           if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
             CMD="$CMD --dry-run"
           fi
-          
+
           if [ "${{ github.event.inputs.resume }}" == "true" ]; then
             CMD="$CMD --resume"
           fi
-          
+
           echo "Running: $CMD"
           eval $CMD
 
@@ -164,15 +164,14 @@ jobs:
             --data '{"text":"❌ PriceOye scraper failed! Run #${{ github.run_number }}\nCheck: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
             $SLACK_WEBHOOK_URL
 
-
   # Separate job for specific categories (can run in parallel)
   scrape-mobiles:
     name: Scrape Mobiles (Daily)
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
     # Only run on schedule, not manual dispatch
     if: github.event_name == 'schedule'
-    
+
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
