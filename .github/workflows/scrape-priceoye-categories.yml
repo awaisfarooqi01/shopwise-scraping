@@ -9,7 +9,7 @@ on:
   schedule:
     # Mobiles - Every day at 2 AM UTC (high priority)
     - cron: '0 2 * * *'
-    
+
   workflow_dispatch:
     inputs:
       category:
@@ -62,7 +62,7 @@ jobs:
   scrape-category:
     needs: determine-category
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
 
     steps:
       - name: 📥 Checkout Repository
