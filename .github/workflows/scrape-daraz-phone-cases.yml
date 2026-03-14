@@ -41,7 +41,7 @@ jobs:
   batch-1:
     name: 📱 Phone Cases (Pages 1-250)
     if: ${{ inputs.start_batch <= 1 && (inputs.end_batch == 0 || inputs.end_batch >= 1) }}
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 1
@@ -55,7 +55,7 @@ jobs:
     name: 📱 Phone Cases (Pages 251-500)
     if: ${{ inputs.start_batch <= 2 && (inputs.end_batch == 0 || inputs.end_batch >= 2) }}
     needs: batch-1
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 251
@@ -69,7 +69,7 @@ jobs:
     name: 📱 Phone Cases (Pages 501-750)
     if: ${{ inputs.start_batch <= 3 && (inputs.end_batch == 0 || inputs.end_batch >= 3) }}
     needs: batch-2
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 501
@@ -83,7 +83,7 @@ jobs:
     name: 📱 Phone Cases (Pages 751-1000)
     if: ${{ inputs.start_batch <= 4 && (inputs.end_batch == 0 || inputs.end_batch >= 4) }}
     needs: batch-3
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 751
@@ -97,7 +97,7 @@ jobs:
     name: 📱 Phone Cases (Pages 1001+)
     if: ${{ inputs.start_batch <= 5 && (inputs.end_batch == 0 || inputs.end_batch >= 5) }}
     needs: batch-4
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 1001

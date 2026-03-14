@@ -57,7 +57,7 @@ jobs:
   tablet-accessories:
     name: 📱 Tablet Accessories
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Tablet Accessories')) }}
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Tablet Accessories'
       start_page: 1
@@ -70,7 +70,7 @@ jobs:
   car-mounts:
     name: 🚗 Car Mounts
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Car Mounts')) }}
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Car Mounts'
       start_page: 1
@@ -87,7 +87,7 @@ jobs:
   parts-tools-1:
     name: 🔧 Parts & Tools (1-250)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Parts & Tools')) }}
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Parts & Tools'
       start_page: 1
@@ -101,7 +101,7 @@ jobs:
     name: 🔧 Parts & Tools (251-500)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Parts & Tools')) }}
     needs: parts-tools-1 # Sequential to avoid overwhelming the site
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Parts & Tools'
       start_page: 251
@@ -119,7 +119,7 @@ jobs:
   cables-converters-1:
     name: 🔌 Cables & Converters (1-250)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Cables')) }}
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Cables & Converters'
       start_page: 1
@@ -133,7 +133,7 @@ jobs:
     name: 🔌 Cables & Converters (251-500)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Cables')) }}
     needs: cables-converters-1
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Cables & Converters'
       start_page: 251
@@ -147,7 +147,7 @@ jobs:
     name: 🔌 Cables & Converters (501-750)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Cables')) }}
     needs: cables-converters-2
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Cables & Converters'
       start_page: 501
@@ -161,7 +161,7 @@ jobs:
     name: 🔌 Cables & Converters (751-1000)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Cables')) }}
     needs: cables-converters-3
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Cables & Converters'
       start_page: 751
@@ -175,7 +175,7 @@ jobs:
   phone-cases-1:
     name: 📱 Phone Cases (1-250)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Phone Cases')) }}
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 1
@@ -189,7 +189,7 @@ jobs:
     name: 📱 Phone Cases (251-500)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Phone Cases')) }}
     needs: phone-cases-1
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 251
@@ -203,7 +203,7 @@ jobs:
     name: 📱 Phone Cases (501-750)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Phone Cases')) }}
     needs: phone-cases-2
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 501
@@ -217,7 +217,7 @@ jobs:
     name: 📱 Phone Cases (751-1000)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Phone Cases')) }}
     needs: phone-cases-3
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 751
@@ -231,7 +231,7 @@ jobs:
     name: 📱 Phone Cases (1001-1250)
     if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Phone Cases')) }}
     needs: phone-cases-4
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 1001

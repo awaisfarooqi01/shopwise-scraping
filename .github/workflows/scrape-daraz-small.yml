@@ -44,7 +44,7 @@ jobs:
   tablet-accessories:
     name: 📱 Tablet Accessories
     if: ${{ inputs.category == 'Tablet Accessories' || inputs.category == 'all-small' }}
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Tablet Accessories'
       start_page: 1
@@ -57,7 +57,7 @@ jobs:
   car-mounts:
     name: 🚗 Car Mounts
     if: ${{ inputs.category == 'Car Mounts' || inputs.category == 'all-small' }}
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Car Mounts'
       start_page: 1
@@ -70,7 +70,7 @@ jobs:
   parts-tools:
     name: 🔧 Parts & Tools
     if: ${{ inputs.category == 'Parts & Tools' || inputs.category == 'all-small' }}
-    uses: ./.github/workflows/scraping-platforms/daraz/scrape-daraz-category.yml
+    uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Parts & Tools'
       start_page: 1
