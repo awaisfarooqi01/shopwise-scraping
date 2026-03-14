@@ -24,7 +24,8 @@ const Platform = require('../../models/Platform');
 const cheerio = require('cheerio');
 
 // Unmapped category ID - set this in your .env or get from database
-const UNMAPPED_CATEGORY_ID = process.env.UNMAPPED_CATEGORY_ID || null;
+// const UNMAPPED_CATEGORY_ID = process.env.UNMAPPED_CATEGORY_ID || null;
+const UNMAPPED_CATEGORY_ID = '692eb8c6ac1679df1d60ed19';
 
 /**
  * DarazScraper - Scrapes product data from Daraz.pk
