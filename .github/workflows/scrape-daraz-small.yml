@@ -48,9 +48,9 @@ jobs:
     with:
       category_name: 'Tablet Accessories'
       start_page: 1
-      end_page: ${{ inputs.max_pages }}
+      end_page: '${{ inputs.max_pages }}'
       include_reviews: ${{ inputs.include_reviews }}
-      max_review_pages: ${{ inputs.max_review_pages }}
+      max_review_pages: '${{ inputs.max_review_pages }}'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
@@ -61,9 +61,9 @@ jobs:
     with:
       category_name: 'Car Mounts'
       start_page: 1
-      end_page: ${{ inputs.max_pages }}
+      end_page: '${{ inputs.max_pages }}'
       include_reviews: ${{ inputs.include_reviews }}
-      max_review_pages: ${{ inputs.max_review_pages }}
+      max_review_pages: '${{ inputs.max_review_pages }}'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
@@ -74,9 +74,9 @@ jobs:
     with:
       category_name: 'Parts & Tools'
       start_page: 1
-      end_page: ${{ inputs.max_pages }}
+      end_page: '${{ inputs.max_pages }}'
       include_reviews: ${{ inputs.include_reviews }}
-      max_review_pages: ${{ inputs.max_review_pages }}
+      max_review_pages: '${{ inputs.max_review_pages }}'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 

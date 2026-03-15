@@ -56,27 +56,27 @@ jobs:
 
   tablet-accessories:
     name: 📱 Tablet Accessories
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Tablet Accessories')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Tablet Accessories')) }}
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Tablet Accessories'
       start_page: 1
-      end_page: 0 # All pages
+      end_page: '0'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
   car-mounts:
     name: 🚗 Car Mounts
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Car Mounts')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Car Mounts')) }}
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Car Mounts'
       start_page: 1
-      end_page: 0 # All pages
+      end_page: '0'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
@@ -86,28 +86,28 @@ jobs:
 
   parts-tools-1:
     name: 🔧 Parts & Tools (1-250)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Parts & Tools')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Parts & Tools')) }}
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Parts & Tools'
       start_page: 1
-      end_page: 250
+      end_page: '250'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
   parts-tools-2:
     name: 🔧 Parts & Tools (251-500)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Parts & Tools')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Parts & Tools')) }}
     needs: parts-tools-1 # Sequential to avoid overwhelming the site
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Parts & Tools'
       start_page: 251
-      end_page: 0 # Till end
+      end_page: '0'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
@@ -118,126 +118,126 @@ jobs:
   # Cables & Converters (~1000 pages = 4 jobs)
   cables-converters-1:
     name: 🔌 Cables & Converters (1-250)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Cables')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Cables')) }}
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Cables & Converters'
       start_page: 1
-      end_page: 250
+      end_page: '250'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
   cables-converters-2:
     name: 🔌 Cables & Converters (251-500)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Cables')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Cables')) }}
     needs: cables-converters-1
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Cables & Converters'
       start_page: 251
-      end_page: 500
+      end_page: '500'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
   cables-converters-3:
     name: 🔌 Cables & Converters (501-750)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Cables')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Cables')) }}
     needs: cables-converters-2
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Cables & Converters'
       start_page: 501
-      end_page: 750
+      end_page: '750'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
   cables-converters-4:
     name: 🔌 Cables & Converters (751-1000)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Cables')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Cables')) }}
     needs: cables-converters-3
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Cables & Converters'
       start_page: 751
-      end_page: 0 # Till end
+      end_page: '0'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
   # Phone Cases (~1250 pages = 5 jobs)
   phone-cases-1:
     name: 📱 Phone Cases (1-250)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Phone Cases')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Phone Cases')) }}
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 1
-      end_page: 250
+      end_page: '250'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
   phone-cases-2:
     name: 📱 Phone Cases (251-500)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Phone Cases')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Phone Cases')) }}
     needs: phone-cases-1
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 251
-      end_page: 500
+      end_page: '500'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
   phone-cases-3:
     name: 📱 Phone Cases (501-750)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Phone Cases')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Phone Cases')) }}
     needs: phone-cases-2
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 501
-      end_page: 750
+      end_page: '750'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
   phone-cases-4:
     name: 📱 Phone Cases (751-1000)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Phone Cases')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Phone Cases')) }}
     needs: phone-cases-3
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 751
-      end_page: 1000
+      end_page: '1000'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
   phone-cases-5:
     name: 📱 Phone Cases (1001-1250)
-    if: ${{ !inputs.dry_run && (inputs.categories == 'all' || contains(inputs.categories, 'Phone Cases')) }}
+    if: ${{ !(inputs.dry_run || false) && ((inputs.categories || 'all') == 'all' || contains(inputs.categories, 'Phone Cases')) }}
     needs: phone-cases-4
     uses: ./.github/workflows/scrape-daraz-category.yml
     with:
       category_name: 'Phone Cases'
       start_page: 1001
-      end_page: 0 # Till end
+      end_page: '0'
       include_reviews: ${{ inputs.include_reviews || true }}
-      max_review_pages: 3
+      max_review_pages: '3'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 

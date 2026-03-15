@@ -45,9 +45,9 @@ jobs:
     with:
       category_name: 'Phone Cases'
       start_page: 1
-      end_page: 250
+      end_page: '250'
       include_reviews: ${{ inputs.include_reviews }}
-      max_review_pages: ${{ inputs.max_review_pages }}
+      max_review_pages: '${{ inputs.max_review_pages }}'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
@@ -59,9 +59,9 @@ jobs:
     with:
       category_name: 'Phone Cases'
       start_page: 251
-      end_page: 500
+      end_page: '500'
       include_reviews: ${{ inputs.include_reviews }}
-      max_review_pages: ${{ inputs.max_review_pages }}
+      max_review_pages: '${{ inputs.max_review_pages }}'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
@@ -73,9 +73,9 @@ jobs:
     with:
       category_name: 'Phone Cases'
       start_page: 501
-      end_page: 750
+      end_page: '750'
       include_reviews: ${{ inputs.include_reviews }}
-      max_review_pages: ${{ inputs.max_review_pages }}
+      max_review_pages: '${{ inputs.max_review_pages }}'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
@@ -87,9 +87,9 @@ jobs:
     with:
       category_name: 'Phone Cases'
       start_page: 751
-      end_page: 1000
+      end_page: '1000'
       include_reviews: ${{ inputs.include_reviews }}
-      max_review_pages: ${{ inputs.max_review_pages }}
+      max_review_pages: '${{ inputs.max_review_pages }}'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
@@ -101,9 +101,9 @@ jobs:
     with:
       category_name: 'Phone Cases'
       start_page: 1001
-      end_page: 0 # Till end
+      end_page: '0'
       include_reviews: ${{ inputs.include_reviews }}
-      max_review_pages: ${{ inputs.max_review_pages }}
+      max_review_pages: '${{ inputs.max_review_pages }}'
     secrets:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
 

@@ -24,8 +24,8 @@ on:
       end_page:
         description: 'Ending page number (0 = unlimited)'
         required: false
-        type: number
-        default: 0
+        type: string
+        default: '0'
       include_reviews:
         description: 'Include review scraping'
         required: false
@@ -34,8 +34,8 @@ on:
       max_review_pages:
         description: 'Max review pages per product (0 = unlimited)'
         required: false
-        type: number
-        default: 0
+        type: string
+        default: '0'
     secrets:
       MONGODB_URI:
         required: true
