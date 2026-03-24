@@ -1,0 +1,115 @@
+# Daraz Scraper - Single Category Workflow
+#
+# Manually trigger to scrape a specific Daraz category.
+# Each job gets a full 6-hour timeout for maximum scraping.
+#
+# Required Secrets:
+#   - MONGODB_URI: MongoDB connection string
+
+name: Daraz Scraper (Single Category)
+
+on:
+  workflow_dispatch:
+    inputs:
+      category:
+        description: 'Select category to scrape'
+        required: true
+        type: choice
+        options:
+          - Tablet Accessories
+          - Cables & Converters
+          - Phone Cases
+          - Car Mounts
+          - Parts & Tools
+      max_pages:
+        description: 'Max listing pages to scrape (more pages = more products)'
+        required: false
+        default: '50'
+        type: string
+      include_reviews:
+        description: 'Also scrape product reviews'
+        required: false
+        default: false
+        type: boolean
+      max_review_pages:
+        description: 'Max review pages per product (if reviews enabled)'
+        required: false
+        default: '3'
+        type: string
+      dry_run:
+        description: 'Dry run mode (preview only)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: daraz-scraper-${{ github.event.inputs.category }}
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    name: 'Scrape: ${{ github.event.inputs.category }}'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6 hours max
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🎭 Install Playwright Browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: 📁 Create Directories
+        run: |
+          mkdir -p data
+          mkdir -p data/screenshots
+          mkdir -p logs
+
+      - name: 🕷️ Run Daraz Scraper
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          NODE_ENV: production
+        run: |
+          CMD="node scripts/scrape-daraz.js"
+          CMD="$CMD --category '${{ github.event.inputs.category }}'"
+          CMD="$CMD --max-pages ${{ github.event.inputs.max_pages }}"
+
+          if [ "${{ github.event.inputs.include_reviews }}" == "true" ]; then
+            CMD="$CMD --include-reviews --max-review-pages ${{ github.event.inputs.max_review_pages }}"
+          fi
+
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+
+          echo "Running: $CMD"
+          eval $CMD
+
+      - name: 📊 Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daraz-${{ github.event.inputs.category }}-logs-${{ github.run_number }}
+          path: |
+            logs/*.log
+            data/daraz-scrape-progress.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: 📸 Upload Screenshots (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daraz-error-screenshots-${{ github.run_number }}
+          path: data/screenshots/
+          retention-days: 3
+          if-no-files-found: ignore

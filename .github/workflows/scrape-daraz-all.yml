@@ -1,0 +1,138 @@
+# Daraz Scraper - ALL Categories in Parallel
+#
+# This is the POWER workflow - runs ALL 5 Daraz categories simultaneously
+# using GitHub Actions matrix strategy. Each category gets its own runner
+# with a full 6-hour timeout.
+#
+# Result: 5 categories scraped in parallel = 30 hours of scraping
+# completed in just ~6 hours wall-clock time!
+#
+# Required Secrets:
+#   - MONGODB_URI: MongoDB connection string
+
+name: Daraz Scraper (All Parallel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_pages:
+        description: 'Max listing pages per category (more = more products)'
+        required: false
+        default: '50'
+        type: string
+      include_reviews:
+        description: 'Also scrape product reviews'
+        required: false
+        default: false
+        type: boolean
+      max_review_pages:
+        description: 'Max review pages per product (if reviews enabled)'
+        required: false
+        default: '3'
+        type: string
+      dry_run:
+        description: 'Dry run (preview only, no scraping)'
+        required: false
+        default: false
+        type: boolean
+
+  # Scheduled runs
+  schedule:
+    # Run all categories every day at 1 AM UTC (6 AM PKT)
+    - cron: '0 1 * * *'
+
+# Allow all category jobs to run in parallel, but prevent
+# duplicate runs of the same workflow
+concurrency:
+  group: daraz-all-parallel
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    name: 'Scrape ${{ matrix.category }}'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6 hours per category
+    strategy:
+      fail-fast: false # Don't cancel other categories if one fails
+      max-parallel: 5  # Run all 5 simultaneously
+      matrix:
+        category:
+          - Tablet Accessories
+          - Cables & Converters
+          - Phone Cases
+          - Car Mounts
+          - Parts & Tools
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🎭 Install Playwright Browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: 📁 Create Directories
+        run: |
+          mkdir -p data
+          mkdir -p data/screenshots
+          mkdir -p logs
+
+      - name: 🕷️ Scrape ${{ matrix.category }}
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          NODE_ENV: production
+        run: |
+          # Use input values or defaults for scheduled runs
+          MAX_PAGES="${{ github.event.inputs.max_pages || '50' }}"
+          INCLUDE_REVIEWS="${{ github.event.inputs.include_reviews || 'false' }}"
+          MAX_REVIEW_PAGES="${{ github.event.inputs.max_review_pages || '3' }}"
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+
+          CMD="node scripts/scrape-daraz.js"
+          CMD="$CMD --category '${{ matrix.category }}'"
+          CMD="$CMD --max-pages $MAX_PAGES"
+
+          if [ "$INCLUDE_REVIEWS" == "true" ]; then
+            CMD="$CMD --include-reviews --max-review-pages $MAX_REVIEW_PAGES"
+          fi
+
+          if [ "$DRY_RUN" == "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+
+          echo "═══════════════════════════════════════════════════"
+          echo "📍 Category: ${{ matrix.category }}"
+          echo "📄 Max Pages: $MAX_PAGES"
+          echo "💬 Reviews: $INCLUDE_REVIEWS"
+          echo "═══════════════════════════════════════════════════"
+          echo ""
+          echo "Running: $CMD"
+          eval $CMD
+
+      - name: 📊 Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daraz-${{ matrix.category }}-logs-${{ github.run_number }}
+          path: |
+            logs/*.log
+            data/daraz-scrape-progress.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: 📸 Upload Screenshots (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daraz-${{ matrix.category }}-screenshots-${{ github.run_number }}
+          path: data/screenshots/
+          retention-days: 3
+          if-no-files-found: ignore
