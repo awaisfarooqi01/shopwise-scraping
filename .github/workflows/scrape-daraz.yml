@@ -2,6 +2,7 @@
 #
 # Manually trigger to scrape a specific Daraz category.
 # Each job gets a full 6-hour timeout for maximum scraping.
+# ALL product reviews are scraped automatically (no limit).
 #
 # Required Secrets:
 #   - MONGODB_URI: MongoDB connection string
@@ -25,16 +26,6 @@ on:
         description: 'Max listing pages to scrape (more pages = more products)'
         required: false
         default: '50'
-        type: string
-      include_reviews:
-        description: 'Also scrape product reviews'
-        required: false
-        default: false
-        type: boolean
-      max_review_pages:
-        description: 'Max review pages per product (if reviews enabled)'
-        required: false
-        default: '3'
         type: string
       dry_run:
         description: 'Dry run mode (preview only)'
@@ -82,10 +73,6 @@ jobs:
           CMD="node scripts/scrape-daraz.js"
           CMD="$CMD --category '${{ github.event.inputs.category }}'"
           CMD="$CMD --max-pages ${{ github.event.inputs.max_pages }}"
-
-          if [ "${{ github.event.inputs.include_reviews }}" == "true" ]; then
-            CMD="$CMD --include-reviews --max-review-pages ${{ github.event.inputs.max_review_pages }}"
-          fi
 
           if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
             CMD="$CMD --dry-run"

@@ -4,6 +4,8 @@
 # using GitHub Actions matrix strategy. Each category gets its own runner
 # with a full 6-hour timeout.
 #
+# ALL product reviews are scraped automatically (no limit).
+#
 # Result: 5 categories scraped in parallel = 30 hours of scraping
 # completed in just ~6 hours wall-clock time!
 #
@@ -19,16 +21,6 @@ on:
         description: 'Max listing pages per category (more = more products)'
         required: false
         default: '50'
-        type: string
-      include_reviews:
-        description: 'Also scrape product reviews'
-        required: false
-        default: false
-        type: boolean
-      max_review_pages:
-        description: 'Max review pages per product (if reviews enabled)'
-        required: false
-        default: '3'
         type: string
       dry_run:
         description: 'Dry run (preview only, no scraping)'
@@ -92,17 +84,11 @@ jobs:
         run: |
           # Use input values or defaults for scheduled runs
           MAX_PAGES="${{ github.event.inputs.max_pages || '50' }}"
-          INCLUDE_REVIEWS="${{ github.event.inputs.include_reviews || 'false' }}"
-          MAX_REVIEW_PAGES="${{ github.event.inputs.max_review_pages || '3' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
 
           CMD="node scripts/scrape-daraz.js"
           CMD="$CMD --category '${{ matrix.category }}'"
           CMD="$CMD --max-pages $MAX_PAGES"
-
-          if [ "$INCLUDE_REVIEWS" == "true" ]; then
-            CMD="$CMD --include-reviews --max-review-pages $MAX_REVIEW_PAGES"
-          fi
 
           if [ "$DRY_RUN" == "true" ]; then
             CMD="$CMD --dry-run"
@@ -111,7 +97,7 @@ jobs:
           echo "═══════════════════════════════════════════════════"
           echo "📍 Category: ${{ matrix.category }}"
           echo "📄 Max Pages: $MAX_PAGES"
-          echo "💬 Reviews: $INCLUDE_REVIEWS"
+          echo "💬 Reviews: All (no limit)"
           echo "═══════════════════════════════════════════════════"
           echo ""
           echo "Running: $CMD"

@@ -3,7 +3,7 @@
  * 
  * This script scrapes all products from Daraz.pk based on the configuration
  * in daraz-categories.json. It scrapes category/search URLs and extracts
- * individual product details + reviews.
+ * individual product details + ALL reviews (no review limit).
  * 
  * Usage:
  *   node scripts/scrape-daraz.js                           # Scrape all enabled categories
@@ -11,7 +11,6 @@
  *   node scripts/scrape-daraz.js --dry-run                 # Show what would be scraped without scraping
  *   node scripts/scrape-daraz.js --resume                  # Resume from last failed category
  *   node scripts/scrape-daraz.js --max-pages 5             # Limit listing pages per category
- *   node scripts/scrape-daraz.js --include-reviews         # Also scrape product reviews
  */
 
 require('dotenv').config();
@@ -51,8 +50,6 @@ function parseArgs() {
     help: false,
     ci: false,
     maxPages: 10,
-    includeReviews: false,
-    maxReviewPages: 5,
     startPage: 1,
     endPage: null,
   };
@@ -75,12 +72,7 @@ function parseArgs() {
       case '-m':
         options.maxPages = parseInt(args[++i], 10);
         break;
-      case '--include-reviews':
-        options.includeReviews = true;
-        break;
-      case '--max-review-pages':
-        options.maxReviewPages = parseInt(args[++i], 10);
-        break;
+
       case '--start-page':
         options.startPage = parseInt(args[++i], 10);
         break;
@@ -121,18 +113,17 @@ Options:
   --dry-run, -d               Show what would be scraped without actually scraping
   --resume, -r                Resume from last failed/incomplete scrape
   --max-pages, -m <number>    Maximum listing pages per category (default: 10)
-  --include-reviews           Also scrape product reviews (default: off)
-  --max-review-pages <number> Maximum review pages per product (default: 5)
   --start-page <number>       Starting page number (default: 1)
   --end-page <number>         Ending page number (default: unlimited)
   --ci                        CI mode - no prompts, auto-detected in GitHub Actions
   --help, -h                  Show this help message
 
+Note: ALL product reviews are always scraped (no limit).
+
 Examples:
   node scripts/scrape-daraz.js                                 # Scrape everything
   node scripts/scrape-daraz.js --category "Phone Cases"        # Only Phone Cases
   node scripts/scrape-daraz.js --category "Car Mounts" -m 3    # Car Mounts, max 3 pages
-  node scripts/scrape-daraz.js --include-reviews               # Scrape with reviews
   node scripts/scrape-daraz.js --dry-run                       # Preview mode
 
 Environment Variables:
@@ -233,7 +224,7 @@ function displayScrapePlan(scrapeList, options) {
   console.log(`\n📊 Summary:`);
   console.log(`   Categories to scrape: ${scrapeList.length}`);
   console.log(`   Max listing pages per category: ${options.maxPages}`);
-  console.log(`   Include reviews: ${options.includeReviews ? 'Yes' : 'No'}`);
+  console.log(`   Reviews: All (no limit)`);
   if (options.startPage > 1 || options.endPage) {
     console.log(`   Page range: ${options.startPage}${options.endPage ? `-${options.endPage}` : '+'}`);
   }
@@ -321,8 +312,8 @@ async function scrapeAll(options) {
       try {
         const products = await scraper.scrapeCategoryByUrl(item.url, {
           maxPages: options.maxPages,
-          includeReviews: options.includeReviews,
-          maxReviewPages: options.maxReviewPages,
+          includeReviews: true,
+          maxReviewPages: 9999,
           name: item.categoryName,
           startPage: options.startPage,
           endPage: options.endPage,
