@@ -45,7 +45,7 @@ concurrency:
 jobs:
   scrape:
     name: 'Scrape ${{ matrix.category }}'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 360 # 6 hours per category
     strategy:
       fail-fast: false # Don't cancel other categories if one fails

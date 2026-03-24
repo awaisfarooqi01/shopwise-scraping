@@ -40,7 +40,7 @@ concurrency:
 jobs:
   scrape:
     name: 'Scrape: ${{ github.event.inputs.category }}'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 360 # 6 hours max
 
     steps:
