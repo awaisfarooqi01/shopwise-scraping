@@ -6,9 +6,6 @@
 #
 # ALL product reviews are scraped automatically (no limit).
 #
-# Caching: npm dependencies and Playwright browsers are cached to speed
-# up the setup phase. First run will be slow, subsequent runs will be fast.
-#
 # Result: 5 categories scraped in parallel = 30 hours of scraping
 # completed in just ~6 hours wall-clock time!
 #
@@ -45,7 +42,7 @@ concurrency:
 jobs:
   scrape:
     name: 'Scrape ${{ matrix.category }}'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 360 # 6 hours per category
     strategy:
       fail-fast: false # Don't cancel other categories if one fails
@@ -71,22 +68,8 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
-      - name: 🎭 Cache Playwright Browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            playwright-${{ runner.os }}-
-
       - name: 🎭 Install Playwright Browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install chromium --with-deps
-
-      - name: 🎭 Install Playwright Deps (if cached)
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
 
       - name: 📁 Create Directories
         run: |
