@@ -1,0 +1,30 @@
+name: Compute Product Scores
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # Daily at 2 AM
+  workflow_dispatch:
+
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run score computation
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          SCORE_BATCH_SIZE: 300
+          SCORE_CONCURRENCY: 25
+          SCORE_RECOMPUTE_ALL: 'false'
+        run: node scripts/computeProductScores.js
