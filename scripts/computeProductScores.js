@@ -17,15 +17,15 @@
  * - SCORE_MAX_PRODUCTS (optional cap, mostly for testing)
  */
 
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
-const config = require("../src/config");
-const { logger } = require("../src/utils/logger");
+const config = require('../src/config');
+const { logger } = require('../src/utils/logger');
 
 // Ensure model is registered
-require("../src/models");
+require('../src/models');
 
-const Product = mongoose.model("Product");
+const Product = mongoose.model('Product');
 
 const DEFAULT_BATCH_SIZE = 300;
 const DEFAULT_CONCURRENCY = 25;
@@ -77,13 +77,13 @@ async function runWithConcurrency(tasks, concurrency) {
  * @returns {number}
  */
 function parseDeliveryDays(deliveryTime) {
-  if (!deliveryTime || typeof deliveryTime !== "string") return 7;
+  if (!deliveryTime || typeof deliveryTime !== 'string') return 7;
 
   const text = deliveryTime.toLowerCase();
 
-  if (text.includes("next day")) return 1;
-  if (text.includes("same day")) return 1;
-  if (text.includes("24 hour")) return 1;
+  if (text.includes('next day')) return 1;
+  if (text.includes('same day')) return 1;
+  if (text.includes('24 hour')) return 1;
 
   // Range e.g. "3-5 days"
   const rangeMatch = text.match(/(\d+)\s*-\s*(\d+)/);
@@ -109,7 +109,7 @@ function parseDeliveryDays(deliveryTime) {
  */
 function isInStock(availability) {
   // In our schema, we use: in_stock, out_of_stock, limited, pre_order
-  return availability === "in_stock";
+  return availability === 'in_stock';
 }
 
 /**
@@ -118,7 +118,6 @@ function isInStock(availability) {
  *
  * TODO: Replace with a dedicated platform trust score field in Platform model.
  *
- * @param {string | undefined | null} platformName
  * @returns {number} range [0, 1]
  */
 function getPlatformTrustScore() {
@@ -126,7 +125,7 @@ function getPlatformTrustScore() {
   // a hardcoded constant for all platforms (optionally overridden by env var).
   //
   // TODO: Precompute per-platform trust offline and store in Platform model, then read it here.
-  const trust = parseFloat(process.env.PLATFORM_TRUST_SCORE || "0.7");
+  const trust = parseFloat(process.env.PLATFORM_TRUST_SCORE || '0.7');
   return Number.isFinite(trust) ? clamp(trust, 0, 1) : 0.7;
 }
 
@@ -138,8 +137,8 @@ function getPlatformTrustScore() {
  * @returns {number}
  */
 function computeTotalCost(product) {
-  const base = typeof product.sale_price === "number" ? product.sale_price : product.price;
-  const shipping = typeof product.shipping_cost === "number" ? product.shipping_cost : 0;
+  const base = typeof product.sale_price === 'number' ? product.sale_price : product.price;
+  const shipping = typeof product.shipping_cost === 'number' ? product.shipping_cost : 0;
   return (base || 0) + shipping;
 }
 
@@ -151,12 +150,12 @@ function computeTotalCost(product) {
  * @returns {number}
  */
 function computeQualityIndex(product) {
-  const averageRating = typeof product.average_rating === "number" ? product.average_rating : 0;
-  const reviewCount = typeof product.review_count === "number" ? product.review_count : 0;
+  const averageRating = typeof product.average_rating === 'number' ? product.average_rating : 0;
+  const reviewCount = typeof product.review_count === 'number' ? product.review_count : 0;
   // In this dataset, `positive_percent` is -1 when not yet calculated.
-// Treat unknown as neutral (50%) so it doesn't distort scoring.
-const positiveRaw = typeof product.positive_percent === "number" ? product.positive_percent : -1;
-const positivePercent = positiveRaw >= 0 ? positiveRaw : 50;
+  // Treat unknown as neutral (50%) so it doesn't distort scoring.
+  const positiveRaw = typeof product.positive_percent === 'number' ? product.positive_percent : -1;
+  const positivePercent = positiveRaw >= 0 ? positiveRaw : 50;
 
   const ratingComponent = (averageRating / 5) * 0.5;
   const reviewComponent = (Math.log(reviewCount + 1) / 10) * 0.2;
@@ -176,17 +175,17 @@ const positivePercent = positiveRaw >= 0 ? positiveRaw : 50;
  * @returns {number}
  */
 function computeTrust(product) {
-  const reviewCount = typeof product.review_count === "number" ? product.review_count : 0;
+  const reviewCount = typeof product.review_count === 'number' ? product.review_count : 0;
   // In this dataset, `positive_percent` is -1 when not yet calculated.
-// Treat unknown as neutral (50%) so it doesn't distort scoring.
-const positiveRaw = typeof product.positive_percent === "number" ? product.positive_percent : -1;
-const positivePercent = positiveRaw >= 0 ? positiveRaw : 50;
+  // Treat unknown as neutral (50%) so it doesn't distort scoring.
+  const positiveRaw = typeof product.positive_percent === 'number' ? product.positive_percent : -1;
+  const positivePercent = positiveRaw >= 0 ? positiveRaw : 50;
   const condition = product.condition;
 
   const platformTrustScore = getPlatformTrustScore();
 
   const reviewCountComponent = Math.min(reviewCount / 100, 1) * 0.4;
-  const conditionComponent = (condition === "new" ? 1 : 0.6) * 0.2;
+  const conditionComponent = (condition === 'new' ? 1 : 0.6) * 0.2;
   const positiveComponent = (positivePercent / 100) * 0.2;
   const platformComponent = platformTrustScore * 0.2;
 
@@ -227,19 +226,46 @@ function buildComputedScores(product, now) {
 }
 
 async function main() {
-  const batchSize = clamp(parseInt(process.env.SCORE_BATCH_SIZE || "", 10) || DEFAULT_BATCH_SIZE, 50, 500);
-  const concurrency = clamp(parseInt(process.env.SCORE_CONCURRENCY || "", 10) || DEFAULT_CONCURRENCY, 1, 100);
-  const recomputeAll = (process.env.SCORE_RECOMPUTE_ALL || "false").toLowerCase() === "true";
+  // Debug env + config early
+  logger.info('MCDM script starting with environment snapshot', {
+    MONGODB_URI: process.env.MONGODB_URI ? '[set]' : '[missing]',
+    SCORE_BATCH_SIZE: process.env.SCORE_BATCH_SIZE,
+    SCORE_CONCURRENCY: process.env.SCORE_CONCURRENCY,
+    SCORE_RECOMPUTE_ALL: process.env.SCORE_RECOMPUTE_ALL,
+    SCORE_MAX_PRODUCTS: process.env.SCORE_MAX_PRODUCTS,
+  });
 
-  const maxProductsRaw = parseInt(process.env.SCORE_MAX_PRODUCTS || "", 10);
+  logger.info('Resolved MongoDB config', {
+    uri: config.mongodb.uri,
+    options: config.mongodb.options,
+  });
+
+  const batchSize = clamp(
+    parseInt(process.env.SCORE_BATCH_SIZE || '', 10) || DEFAULT_BATCH_SIZE,
+    50,
+    500
+  );
+  const concurrency = clamp(
+    parseInt(process.env.SCORE_CONCURRENCY || '', 10) || DEFAULT_CONCURRENCY,
+    1,
+    100
+  );
+  const recomputeAll = (process.env.SCORE_RECOMPUTE_ALL || 'false').toLowerCase() === 'true';
+
+  const maxProductsRaw = parseInt(process.env.SCORE_MAX_PRODUCTS || '', 10);
   const maxProducts = Number.isFinite(maxProductsRaw) ? Math.max(1, maxProductsRaw) : null;
 
-  logger.info("Starting MCDM product score precomputation...");
-  logger.info(`Settings: batchSize=${batchSize}, concurrency=${concurrency}, recomputeAll=${recomputeAll}, maxProducts=${maxProducts || "none"}`);
+  logger.info('Starting MCDM product score precomputation...', {
+    batchSize,
+    concurrency,
+    recomputeAll,
+    maxProducts: maxProducts || null,
+  });
 
   try {
+    logger.info('Connecting to MongoDB...');
     await mongoose.connect(config.mongodb.uri, config.mongodb.options);
-    logger.info("Connected to MongoDB");
+    logger.info('Connected to MongoDB');
 
     let processed = 0;
     let updated = 0;
@@ -250,20 +276,24 @@ async function main() {
         ? {}
         : {
             $or: [
-              { "computed_scores.lastComputedAt": null },
+              { 'computed_scores.lastComputedAt': null },
               {
                 $expr: {
-                  $gt: ["$updatedAt", "$computed_scores.lastComputedAt"],
+                  $gt: ['$updatedAt', '$computed_scores.lastComputedAt'],
                 },
               },
             ],
           }),
     };
 
+    logger.debug('Base query for products', { baseQuery });
+
     let lastId = null;
 
     while (true) {
       const query = lastId ? { ...baseQuery, _id: { $gt: lastId } } : baseQuery;
+
+      logger.debug('Fetching batch with query', { query });
 
       // eslint-disable-next-line no-await-in-loop
       const products = await Product.find(query)
@@ -271,30 +301,40 @@ async function main() {
         .limit(batchSize)
         .select(
           [
-            "price",
-            "sale_price",
-            "shipping_cost",
-            "average_rating",
-            "review_count",
-            "positive_percent",
-            "condition",
-            "platform_name",
-            "availability",
-            "delivery_time",
-            "computed_scores.lastComputedAt",
-            "updatedAt",
-          ].join(" ")
+            'price',
+            'sale_price',
+            'shipping_cost',
+            'average_rating',
+            'review_count',
+            'positive_percent',
+            'condition',
+            'platform_name',
+            'availability',
+            'delivery_time',
+            'computed_scores.lastComputedAt',
+            'updatedAt',
+          ].join(' ')
         )
         .lean();
 
-      if (!products.length) break;
+      logger.info('Fetched batch', { size: products.length });
+
+      if (!products.length) {
+        logger.info('No more products to process, exiting loop');
+        break;
+      }
 
       lastId = products[products.length - 1]._id;
 
       const now = new Date();
 
-      const tasks = products.map((product) => async () => {
+      const tasks = products.map(product => async () => {
         const computedScores = buildComputedScores(product, now);
+
+        logger.debug('Updating product computed_scores', {
+          productId: product._id,
+          computedScores,
+        });
 
         const result = await Product.updateOne(
           { _id: product._id },
@@ -316,25 +356,39 @@ async function main() {
       processed += products.length;
       updated += modifiedCounts.reduce((sum, v) => sum + (v || 0), 0);
 
-      logger.info(`Batch processed=${products.length}, cumulative processed=${processed}, updated=${updated}`);
+      logger.info('Batch summary', {
+        batchSize: products.length,
+        cumulativeProcessed: processed,
+        cumulativeUpdated: updated,
+      });
 
       if (maxProducts && processed >= maxProducts) {
-        logger.warn("Stopping early due to SCORE_MAX_PRODUCTS cap");
+        logger.warn('Stopping early due to SCORE_MAX_PRODUCTS cap', {
+          processed,
+          maxProducts,
+        });
         break;
       }
     }
 
-    logger.info(`Done. processed=${processed}, updated=${updated}`);
+    logger.info('MCDM precomputation complete', { processed, updated });
     await mongoose.disconnect();
+    logger.info('Disconnected from MongoDB');
   } catch (error) {
-    logger.error(`Score computation failed: ${error.message}`);
-    logger.error(error.stack);
+    logger.error('Score computation failed', {
+      message: error.message,
+      stack: error.stack,
+    });
     process.exitCode = 1;
 
     try {
       await mongoose.disconnect();
+      logger.info('Disconnected from MongoDB after error');
     } catch (disconnectError) {
-      logger.error(`Failed to disconnect MongoDB cleanly: ${disconnectError.message}`);
+      logger.error('Failed to disconnect MongoDB cleanly', {
+        message: disconnectError.message,
+        stack: disconnectError.stack,
+      });
     }
   }
 }
