@@ -51,32 +51,54 @@ function rotateKey() {
 
 // ---------- System Prompt ----------
 
-const SYSTEM_PROMPT = `You are an expert computational linguist and e-commerce integrity investigator specializing in opinion spam and fake review detection for ShopWise. Your task is to analyze user reviews and output structured JSON.
+const SYSTEM_PROMPT = `You are an expert AI prompt engineer and computational linguistics researcher specializing in opinion spam detection, fake review identification, and sentiment analysis systems for e-commerce platforms. Your task is to analyze user reviews and output structured JSON.
 
-Evaluate reviews based on the following scientific dimensions of fraud detection:
-1. **Linguistic Density & Specificity**: Genuine reviews describe tangible product properties (e.g., performance, camera, battery, build). Generic praise ("good", "great product") without specifics is low-density but common. If a review is completely devoid of product reference AND has extreme ratings without context, flag as suspicious.
-2. **Sentiment-Rating Congruence**: Flag if the text sentiment strongly contradicts the numerical rating (e.g., text describes a broken item but rating is 5/5, or text says "perfect" but rating is 1/5).
-3. **Linguistic & Emotional Extremity**: Look for exaggerated promotional language ("best in the universe", "contact this WhatsApp for discount") or copied templates.
-4. **Pakistani Cultural & Linguistic Context (CRITICAL)**:
-   - Code-mixing (switching between English, Urdu, and Roman Urdu e.g. "mzaa aya", "boht acha ha", "delivery late thi") is standard and indicates **high authenticity**.
-   - Generous use of emojis (😍, 🥰, 💯, 👍) is a common cultural expression of satisfaction in Pakistani e-commerce.
-   - Users often review the seller/delivery service in the product text (e.g. giving 5 stars because the seller was honest, while noting delivery was delayed). Do NOT mark these as fake; they are authentic service reviews.
+---
 
-Return this exact JSON structure:
+### Analysis Methodology:
+
+1. **Independent Dual-Task Processing**:
+   - Separate Sentiment Analysis and Fake Review Detection completely.
+   - Do NOT let the positive or negative sentiment of the review bias your fraud classification. Fraudulent reviews can be extremely positive (promotional) or extremely negative (defamation/review bombing).
+
+2. **Linguistic Authenticity Modeling**:
+   - Look for evidence of personal, experiential usage (e.g., specific mentions of product utility, features, post-purchase experience).
+   - **Literacy and Brevity Calibration (CRITICAL)**: Normal buyers often write short, generic satisfaction phrases (e.g., "good", "nice", "best", "ok", "excellent product"). These represent genuine customer behavior and **must NOT be flagged as fake**.
+
+3. **Deceptive & AI-Generated Spam Detection**:
+   - Identify signs of artificial text generation (e.g., overly polished/academic language, lack of subjective experiential context, feature dumping without personal feedback, or repetitive structural phrasing).
+   - Identify signs of templated opinion spam (identical sentence structures or bot-like patterns).
+
+4. **Behavioral & Structural Deception Cues**:
+   - Flag promotional solicitation, external links, email addresses, or contact information (e.g. WhatsApp, seller promo codes).
+   - Flag severe rating-text incongruence (e.g. text describes a broken item but Star Rating is 5/5).
+
+5. **Pakistani Cultural/Multilingual Calibration**:
+   - Treat English/Urdu/Roman Urdu code-mixing (e.g. "boht fit phone ha", "delivery late thi pr phone original ha") and heavy emoji usage (😍, 🥰, 💯, 👍) as **highly authentic local user behavior**.
+   - Acknowledge that Pakistani buyers often evaluate the delivery time, cash-on-delivery (COD) transaction, or package condition in the product feedback space. These are genuine transaction reviews and **must NOT be flagged as fake**.
+
+---
+
+### Output JSON Format:
+Return ONLY a valid JSON object matching this structure:
 {
   "sentiment": "positive" | "negative" | "neutral",
   "score": <number from -1.0 to 1.0>,
   "keywords": [<up to 5 key phrases from the review>],
   "primary_negative_reason": "delivery" | "quality" | "packaging" | "customer_service" | "price" | "other" | null,
-  "is_likely_fake": true | false
+  "is_likely_fake": true | false,
+  "fake_signals": ["promotional_spam" | "template_text" | "rating_mismatch" | "ai_generated_style" | "contact_solicitation"],
+  "analysis_reasoning": "<A concise explanation of the linguistic features or indicators observed in the review to justify the classification. For genuine reviews, state 'Genuine feedback showing experiential language' or 'Brief satisfaction rating'.>"
 }
 
 Rules for fields:
 - sentiment: "positive" if score > 0.2, "negative" if score < -0.2, "neutral" otherwise.
 - score: -1.0 (very negative) to 1.0 (very positive).
-- keywords: Extract actual descriptive keywords/phrases from the review text.
+- keywords: Extract actual descriptive keywords/phrases from the review text. If the review is a single word, that word can be the keyword.
 - primary_negative_reason: Set ONLY if sentiment is "negative" (based on the primary complaint).
-- is_likely_fake: Set to true ONLY if there is strong linguistic evidence of spam, bot behavior, complete rating incongruence, or promotional copy. Do NOT mark normal, brief Roman Urdu reviews as fake.`;
+- is_likely_fake: Set to true ONLY if there is strong linguistic evidence of deception, bot templates, complete rating incongruence, or promotional copy.
+- fake_signals: Return an array containing any matching labels from the list if is_likely_fake is true. Return an empty array [] if the review is classified as genuine.
+- analysis_reasoning: Provide a clear trace of evidence justifying the classification.`;
 
 // ---------- Analysis Function ----------
 
@@ -198,6 +220,8 @@ function buildRatingOnlyResult(rating) {
     keywords: [],
     primary_negative_reason: null,
     is_likely_fake: false,
+    fake_signals: [],
+    analysis_reasoning: 'Evaluated using rating fallback because the review has no text or is too short.',
     needs_analysis: false,
   };
 }
@@ -214,6 +238,13 @@ function validateAndNormalize(parsed) {
     'customer_service',
     'price',
     'other',
+  ];
+  const validSignals = [
+    'promotional_spam',
+    'template_text',
+    'rating_mismatch',
+    'ai_generated_style',
+    'contact_solicitation',
   ];
 
   const sentiment = validSentiments.includes(parsed.sentiment)
@@ -243,12 +274,24 @@ function validateAndNormalize(parsed) {
 
   const is_likely_fake = parsed.is_likely_fake === true;
 
+  let fake_signals = [];
+  if (Array.isArray(parsed.fake_signals)) {
+    fake_signals = parsed.fake_signals.filter((s) => validSignals.includes(s));
+  }
+
+  const analysis_reasoning =
+    typeof parsed.analysis_reasoning === 'string'
+      ? parsed.analysis_reasoning.trim()
+      : 'No reasoning details provided by the analyzer.';
+
   return {
     sentiment,
     score,
     keywords,
     primary_negative_reason,
     is_likely_fake,
+    fake_signals,
+    analysis_reasoning,
     needs_analysis: false,
   };
 }

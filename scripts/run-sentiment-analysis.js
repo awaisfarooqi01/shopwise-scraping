@@ -187,6 +187,8 @@ async function main() {
               'sentiment_analysis.keywords': result.keywords,
               'sentiment_analysis.primary_negative_reason': result.primary_negative_reason,
               'sentiment_analysis.is_likely_fake': result.is_likely_fake,
+              'sentiment_analysis.fake_signals': result.fake_signals,
+              'sentiment_analysis.analysis_reasoning': result.analysis_reasoning,
               'sentiment_analysis.needs_analysis': false,
             },
           }

@@ -82,6 +82,11 @@ const reviewSchema = new mongoose.Schema(
         type: Boolean,
         default: false,
       },
+      fake_signals: [String],
+      analysis_reasoning: {
+        type: String,
+        trim: true,
+      },
       needs_analysis: {
         type: Boolean,
         default: true,
