@@ -254,11 +254,11 @@ async function analyzeReviewBatch(reviewsBatch) {
         }
       }
     } catch (err) {
-      logger.error('Failed to analyze batch of reviews using Groq API, falling back to rating-only analysis for this batch', {
+      logger.error('Failed to analyze batch of reviews using Groq API, re-throwing to release locks and retry next time', {
         error: err.message,
         count: validToAnalyze.length
       });
-      // Fallback is handled inside the mapper below (if index is missing in resultsMap)
+      throw err;
     }
   }
 
