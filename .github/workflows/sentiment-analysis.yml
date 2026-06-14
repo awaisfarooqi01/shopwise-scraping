@@ -11,13 +11,13 @@ name: Sentiment Analysis & Fake Review Detection
 
 on:
   schedule:
-    - cron: '0 3 * * *' # Run daily at 3:00 AM UTC
+    - cron: '0 */2 * * *' # Run every 2 hours (12 times a day)
   workflow_dispatch:
     inputs:
       max_reviews:
-        description: 'Max reviews to process (0 for all, default 500 to stay within limits)'
+        description: 'Max reviews to process per shard (0 for all, default 1000 to fit in 6hr timeout)'
         required: false
-        default: '500'
+        default: '1000'
         type: string
       reanalyze:
         description: 'Reanalyze already analyzed reviews'
@@ -36,9 +36,13 @@ concurrency:
 
 jobs:
   analyze:
-    name: 'Run Sentiment & Fake Review Analysis'
+    name: 'Analysis Shard ${{ matrix.partition }}/3'
     runs-on: ubuntu-latest
-    timeout-minutes: 180 # 3 hours max (500 reviews takes ~18 minutes)
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [0, 1, 2] # 3 parallel shards running concurrently
+    timeout-minutes: 180
 
     steps:
       - name: 📥 Checkout Repository
@@ -56,7 +60,7 @@ jobs:
       - name: 📁 Create Log Directory
         run: mkdir -p logs
 
-      - name: 🤖 Run Sentiment Analysis
+      - name: 🤖 Run Sentiment Analysis (Shard ${{ matrix.partition }})
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -68,6 +72,9 @@ jobs:
         run: |
           CMD="node scripts/run-sentiment-analysis.js"
           
+          # Pass sharding parameters
+          CMD="$CMD --partition ${{ matrix.partition }} --total-partitions 3"
+          
           # Handle reanalyze flag
           if [ "${{ github.event.inputs.reanalyze }}" == "true" ]; then
             CMD="$CMD --reanalyze"
@@ -78,21 +85,47 @@ jobs:
             CMD="$CMD --dry-run"
           fi
           
-          # Handle max reviews limit
+          # Handle max reviews limit (per shard)
           if [ -n "${{ github.event.inputs.max_reviews }}" ] && [ "${{ github.event.inputs.max_reviews }}" != "0" ]; then
             CMD="$CMD --max ${{ github.event.inputs.max_reviews }}"
           else
-            # Default to 500 reviews for scheduled daily runs to prevent rate limit exhaustion
+            # Default limit per shard on scheduled runs
             if [ "${{ github.event_name }}" == "schedule" ]; then
-              CMD="$CMD --max 500"
+              CMD="$CMD --max 1000"
             fi
           fi
           
-          echo "Executing: $CMD"
+          echo "Executing Sharded Run: $CMD"
           eval $CMD
 
+      - name: 📝 Upload Shard Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentiment-logs-shard-${{ matrix.partition }}-${{ github.run_number }}
+          path: logs/*.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  recalculate:
+    name: 'Recalculate MCDM Product Ranks'
+    needs: analyze
+    runs-on: ubuntu-latest
+    if: success() && github.event.inputs.dry_run != 'true'
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
       - name: 📊 Recalculate MCDM Ranking Scores
-        if: success() && github.event.inputs.dry_run != 'true'
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           SCORE_BATCH_SIZE: 300
@@ -102,12 +135,3 @@ jobs:
         run: |
           echo "Recomputing MCDM product scores using new positive sentiment percentages..."
           node scripts/computeProductScores.js
-
-      - name: 📝 Upload Execution Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sentiment-analysis-logs-${{ github.run_number }}
-          path: logs/*.log
-          retention-days: 7
-          if-no-files-found: ignore

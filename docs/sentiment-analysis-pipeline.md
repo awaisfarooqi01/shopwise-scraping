@@ -161,16 +161,22 @@ The Groq Free Tier has constraints per key:
 - **6,000 TPM** (Tokens Per Minute)
 - **14,400 RPD** (Requests Per Day)
 
-To scale and analyze all **2.4 lakh (240,000) reviews** before the project deadline, we implemented two concurrent optimization strategies:
+To scale and analyze all **2.4 lakh (240,000) reviews** before the project deadline, we implemented three concurrent optimization strategies:
 
 1.  **API Key Rotation (Horizontal Scaling)**: 
     *   The engine supports passing a comma-separated list of keys in the `.env` configuration (e.g., `GROQ_API_KEY=key1,key2,key3`).
     *   If any key encounters a Rate Limit (`429`) or runs out of daily quota, the engine catches the exception, automatically rotates to the next available API key, and retries the request instantly.
     *   Using **3 keys** increases the daily limit to **43,200 reviews/day**, meaning all 240,000 reviews can be processed in **~5.5 days**.
-2.  **Rate Limit Delay & Pacing**:
-2.  Allows a configurable limit on the maximum number of reviews to process in a single run (e.g. default **500 reviews**).
-3.  Calculates execution pacing: 500 reviews * 2.2 seconds = ~18.3 minutes run time. This processes up to 14,400 reviews per day without hitting TPM or RPM limits.
-4.  If the script encounters a transient API drop or limit, it logs the failure and continues, saving what has been processed. The remaining reviews will simply be picked up by the next run because their `needs_analysis` remains `true`.
+2.  **Parallel Sharding (Distributed Processing)**:
+    *   The GitHub Actions workflow uses a build matrix to run **3 concurrent worker jobs** in parallel.
+    *   We partition the database using an ObjectId suffix sharding algorithm: Shard 0 queries ObjectIds ending in hex `[0-5]`, Shard 1 queries `[6-b]`, and Shard 2 queries `[c-f]`.
+    *   This sharding completely separates reviews among runners, preventing duplication and race conditions.
+    *   MCDM re-ranking score recalculation is run as a single downstream step *only after* all shards complete, preventing database write conflicts.
+3.  **Rate Limit Delay & Pacing**:
+    *   Enforces a delay of `2200ms` between calls per runner to stay within the 30 RPM limit.
+    *   Allows configurable batch sizes (e.g., `--max 1000` per shard). A 1000-review execution takes approximately 40 minutes under normal network conditions but is strictly capped to guarantee it fits safely within GitHub Actions' maximum 6-hour job timeout window.
+    *   By scheduling runs **every 2 hours** (12 times a day) and processing up to **3,000 reviews per run** (1,000 per shard), the pipeline processes up to **36,000 reviews per day**. This stays safely within the 43,200 RPD daily limit of your 3 rotating API keys, finishing all 2.4 lakh reviews in **~6.6 days** (well within your 8-day deadline).
+    *   If a runner encounters a transient issue, already processed reviews are saved with `needs_analysis: false`. The remaining reviews will simply be processed in the next run.
 
 ### Data Safety
 All updates are additive:

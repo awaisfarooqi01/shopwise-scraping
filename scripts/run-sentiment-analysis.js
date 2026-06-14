@@ -42,6 +42,8 @@ function parseArgs() {
     dryRun: false,
     maxReviews: null,
     productId: null,
+    partition: null,
+    totalPartitions: null,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -57,6 +59,12 @@ function parseArgs() {
         break;
       case '--product':
         opts.productId = args[++i] || null;
+        break;
+      case '--partition':
+        opts.partition = parseInt(args[++i], 10);
+        break;
+      case '--total-partitions':
+        opts.totalPartitions = parseInt(args[++i], 10);
         break;
     }
   }
@@ -80,6 +88,8 @@ async function main() {
     dryRun: opts.dryRun,
     maxReviews: opts.maxReviews,
     productId: opts.productId,
+    partition: opts.partition,
+    totalPartitions: opts.totalPartitions,
     mongoUri: config.mongodb.uri ? '[set]' : '[missing]',
     groqKey: process.env.GROQ_API_KEY ? '[set]' : '[MISSING]',
   });
@@ -117,6 +127,29 @@ async function main() {
       { sentiment_analysis: { $exists: false } },
       { sentiment_analysis: null },
     ];
+  }
+
+  // Inject partition sharding (Object ID Modulo Regex)
+  if (opts.totalPartitions && opts.partition !== null) {
+    if (opts.partition < 0 || opts.partition >= opts.totalPartitions) {
+      logger.error(`Invalid partition index ${opts.partition} for total partitions ${opts.totalPartitions}`);
+      process.exit(1);
+    }
+    const hexChars = '0123456789abcdef';
+    const charsPerPartition = Math.ceil(hexChars.length / opts.totalPartitions);
+    const startIdx = opts.partition * charsPerPartition;
+    const endIdx = Math.min(hexChars.length, startIdx + charsPerPartition);
+    const partitionChars = hexChars.substring(startIdx, endIdx);
+    const regexStr = `[${partitionChars}]$`;
+
+    query.$expr = {
+      $regexMatch: {
+        input: { $toString: '$_id' },
+        regex: regexStr,
+        options: 'i',
+      },
+    };
+    logger.info(`Shard Partition Activated: processing reviews ending in hex characters [${partitionChars}]`);
   }
 
   // Count total
