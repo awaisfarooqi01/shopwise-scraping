@@ -13,7 +13,8 @@
     "test:scraper": "node scripts/test-scraper.js",
     "test:reviews": "node tests/test-reviews-and-schema.js",
     "test:brand": "node tests/test-brand-scraping.js",
-    "test:brand:clean": "node tests/test-brand-scraping.js --clean",    "scrape:priceoye": "node scripts/scrape-priceoye.js",
+    "test:brand:clean": "node tests/test-brand-scraping.js --clean",
+    "scrape:priceoye": "node scripts/scrape-priceoye.js",
     "scrape:priceoye:dry": "node scripts/scrape-priceoye.js --dry-run",
     "scrape:priceoye:resume": "node scripts/scrape-priceoye.js --resume",
     "seed:production": "node scripts/seed-production.js",
@@ -25,7 +26,10 @@
     "export": "node scripts/export-data.js",
     "lint": "eslint src/**/*.js",
     "lint:fix": "eslint src/**/*.js --fix",
-    "format": "prettier --write \"src/**/*.js\""
+    "format": "prettier --write \"src/**/*.js\"",
+    "sentiment:analyze": "node scripts/run-sentiment-analysis.js",
+    "sentiment:dry": "node scripts/run-sentiment-analysis.js --dry-run",
+    "sentiment:reanalyze": "node scripts/run-sentiment-analysis.js --reanalyze"
   },
   "keywords": [
     "web-scraping",
@@ -51,6 +55,7 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "fake-useragent": "^1.0.1",
+    "groq-sdk": "^0.12.0",
     "joi": "^17.11.0",
     "mongoose": "^8.0.0",
     "node-cache": "^5.1.2",

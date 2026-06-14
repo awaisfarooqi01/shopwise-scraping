@@ -223,6 +223,23 @@ const productSchema = new mongoose.Schema(
       convenience: { type: Number, default: null },
       lastComputedAt: { type: Date, default: null },
     },
+
+    /**
+     * Aggregated sentiment analysis summary.
+     * Updated by the sentiment analysis batch job after all reviews for
+     * this product have been analyzed.
+     */
+    sentiment_summary: {
+      total_analyzed: { type: Number, default: 0 },
+      positive_count: { type: Number, default: 0 },
+      negative_count: { type: Number, default: 0 },
+      neutral_count: { type: Number, default: 0 },
+      fake_count: { type: Number, default: 0 },
+      average_sentiment_score: { type: Number, default: 0 },
+      top_keywords: [String],
+      top_complaints: [String],
+      last_analyzed_at: { type: Date },
+    },
   },
   {
     timestamps: true,

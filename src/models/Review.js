@@ -73,13 +73,7 @@ const reviewSchema = new mongoose.Schema(
         min: -1,
         max: 1,
       },
-      keywords: [
-        {
-          word: String,
-          sentiment: String,
-          weight: Number,
-        },
-      ],
+      keywords: [String],
       primary_negative_reason: {
         type: String,
         trim: true,

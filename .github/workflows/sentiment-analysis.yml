@@ -1,0 +1,113 @@
+# ShopWise Sentiment Analysis & Fake Review Detection Workflow
+#
+# Processes pending reviews using Groq API (Llama-3.1-8b-instant).
+# Automatically aggregates results per product and recomputes MCDM ranking scores.
+#
+# Required Secrets:
+#   - MONGODB_URI: MongoDB connection string (production cloud)
+#   - GROQ_API_KEY: Groq API authorization key
+
+name: Sentiment Analysis & Fake Review Detection
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # Run daily at 3:00 AM UTC
+  workflow_dispatch:
+    inputs:
+      max_reviews:
+        description: 'Max reviews to process (0 for all, default 500 to stay within limits)'
+        required: false
+        default: '500'
+        type: string
+      reanalyze:
+        description: 'Reanalyze already analyzed reviews'
+        required: false
+        default: false
+        type: boolean
+      dry_run:
+        description: 'Dry run mode (preview samples only, no database changes)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: sentiment-analysis
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    name: 'Run Sentiment & Fake Review Analysis'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180 # 3 hours max (500 reviews takes ~18 minutes)
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 📁 Create Log Directory
+        run: mkdir -p logs
+
+      - name: 🤖 Run Sentiment Analysis
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: 'llama-3.1-8b-instant'
+          SENTIMENT_BATCH_SIZE: 50
+          SENTIMENT_DELAY_MS: 2200
+          SENTIMENT_MAX_RETRIES: 3
+          NODE_ENV: production
+        run: |
+          CMD="node scripts/run-sentiment-analysis.js"
+          
+          # Handle reanalyze flag
+          if [ "${{ github.event.inputs.reanalyze }}" == "true" ]; then
+            CMD="$CMD --reanalyze"
+          fi
+          
+          # Handle dry run flag
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+          
+          # Handle max reviews limit
+          if [ -n "${{ github.event.inputs.max_reviews }}" ] && [ "${{ github.event.inputs.max_reviews }}" != "0" ]; then
+            CMD="$CMD --max ${{ github.event.inputs.max_reviews }}"
+          else
+            # Default to 500 reviews for scheduled daily runs to prevent rate limit exhaustion
+            if [ "${{ github.event_name }}" == "schedule" ]; then
+              CMD="$CMD --max 500"
+            fi
+          fi
+          
+          echo "Executing: $CMD"
+          eval $CMD
+
+      - name: 📊 Recalculate MCDM Ranking Scores
+        if: success() && github.event.inputs.dry_run != 'true'
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          SCORE_BATCH_SIZE: 300
+          SCORE_CONCURRENCY: 25
+          SCORE_RECOMPUTE_ALL: 'false'
+          NODE_ENV: production
+        run: |
+          echo "Recomputing MCDM product scores using new positive sentiment percentages..."
+          node scripts/computeProductScores.js
+
+      - name: 📝 Upload Execution Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentiment-analysis-logs-${{ github.run_number }}
+          path: logs/*.log
+          retention-days: 7
+          if-no-files-found: ignore
