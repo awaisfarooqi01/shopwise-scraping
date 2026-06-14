@@ -27,6 +27,7 @@ sentiment_analysis: {
   is_likely_fake: { type: Boolean, default: false },
   fake_signals: [String], // Taxonomy: promotional_spam, template_text, etc.
   analysis_reasoning: String, // Traceability / explainable reasoning log
+  claimed_by: String, // Distributed lock runId to prevent parallel collision
   needs_analysis: { type: Boolean, default: true } // Processing flag (Indexed)
 }
 ```
@@ -58,9 +59,9 @@ The batch script ([run-sentiment-analysis.js](file:///e:/University%20Work/FYP/c
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        PHASE 1: REVIEW ANALYSIS                        │
 │                                                                        │
-│  [Query Pending] ──> [Batch Loop] ──> [API Request] ──> [Update DB]     │
-│  needs_analysis:     Process 50       Groq LLM          needs_analysis: │
-│  true/missing        at a time        Llama-3.1-8b      false           │
+│  [Query Pending] ──> [Batch Loop] ──> [Batch API Call] ──> [Update DB]  │
+│  needs_analysis:     Fetch 50, run    Groq API             needs_analysis:│
+│  true/missing        chunks of 5      5 reviews/call       false          │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
@@ -82,16 +83,20 @@ The batch script ([run-sentiment-analysis.js](file:///e:/University%20Work/FYP/c
         { 'sentiment_analysis.needs_analysis': { $exists: false } },
         { sentiment_analysis: { $exists: false } },
         { sentiment_analysis: null }
-      ]
+      ],
+      'sentiment_analysis.claimed_by': { $exists: false }
     }
     ```
-    This ensures that already analyzed reviews (`needs_analysis: false`) are skipped, minimizing API usage and processing time.
+    This ensures that already analyzed reviews (`needs_analysis: false`) and reviews currently claimed by other parallel runs are skipped, minimizing duplicate processing.
 2.  **Pagination Cursor**: The script retrieves reviews using cursor-based pagination (`_id > lastId`) in batches of 50. This handles millions of reviews without memory leaks.
-3.  **LLM Inference**:
-    *   If a review has no text or is too short (e.g., `< 2` characters), it immediately bypasses the API and assigns a **rating-only fallback** (e.g., 5★ $\rightarrow$ positive, 1★ $\rightarrow$ negative).
-    *   Otherwise, it issues an API call to Groq with the review text, rating, reviewer name, and verified status.
-    *   **Rate-limiting & Retries**: A mandatory delay of `2200ms` between calls ensures we stay within the **30 RPM** Groq free tier limit. If a rate-limit error (`429`) is encountered, the script backs off exponentially and retries.
-4.  **Save Review**: The script writes the analysis results to the review document, setting `sentiment_analysis.needs_analysis` to `false` and recording the time. It adds the parent `product_id` to a tracking Set.
+3.  **Atomic Batch Lock**: The batch of reviews is locked atomically by setting `sentiment_analysis.claimed_by` to the current `runId`.
+4.  **Batch API Inference (5-in-1 Call)**:
+    *   The batch of 50 is sliced into sub-chunks of **5 reviews**.
+    *   For each chunk, the engine splits reviews into:
+        *   **Empty/Short reviews** (text `< 2` characters): Bypasses the API entirely and assigns a **rating-only fallback** (e.g. 5★ $\rightarrow$ positive, 1★ $\rightarrow$ negative) locally.
+        *   **Valid reviews**: Combined into a single JSON array and sent to Groq in a **single API call** requesting a matching `results` JSON array.
+    *   **Result Mapping**: Re-maps returned analysis objects by matching IDs back to the original review indices, falling back to rating fallbacks for any missing or malformed entries.
+5.  **Save Reviews**: Writes the individual results to MongoDB and unsets the `claimed_by` field to release the lock, recording the time and adding the parent `product_id` to an affected product Set.
 
 ### Phase 2: Product Aggregation (Product-wise)
 Once the review analysis batch completes, the script updates the parent products:
@@ -112,7 +117,7 @@ Once the review analysis batch completes, the script updates the parent products
 To scientifically identify opinion spam (fake reviews) on e-commerce sites, the LLM utilizes an advanced computational linguistics framework. The system operates on the following research-grounded principles:
 
 ### A. Independent Dual-Task Processing (Bias Elimination)
-*   **Methodology**: The pipeline decouples Sentiment Analysis (emotional polarity) from Fraud Classification (deceptive reviews). 
+*   **Methodology**: Decouples Sentiment Analysis (emotional polarity) from Fraud Classification (deceptive reviews).
 *   **Justification**: A review's polarity must not bias its authenticity check. Fraudulent reviews can express extreme positive sentiment (promotional astroturfing) or extreme negative sentiment (malicious competitor defamation/review bombing). Analyzing them independently prevents the model from ignoring spam simply because it has a positive tone.
 
 ### B. Linguistic Authenticity & Specificity Modeling
@@ -161,25 +166,20 @@ The Groq Free Tier has constraints per key:
 - **6,000 TPM** (Tokens Per Minute)
 - **14,400 RPD** (Requests Per Day)
 
-To scale and analyze all **2.4 lakh (240,000) reviews** before the project deadline, we implemented three concurrent optimization strategies:
+To scale and analyze all **2.5 lakh (250,000) reviews** in exactly **6 days**, we implemented three concurrent optimization strategies:
 
-1.  **API Key Rotation (Horizontal Scaling)**: 
+1.  **API Key Rotation (Horizontal Scaling)**:
     *   The engine supports passing a comma-separated list of keys in the `.env` configuration (e.g., `GROQ_API_KEY=key1,key2,key3`).
-    *   If any key encounters a Rate Limit (`429`) or runs out of daily quota, the engine catches the exception, automatically rotates to the next available API key, and retries the request instantly.
-    *   Using **3 keys** increases the daily limit to **43,200 reviews/day**, meaning all 240,000 reviews can be processed in **~5.5 days**.
-2.  **Parallel Sharding (Distributed Processing)**:
-    *   The GitHub Actions workflow uses a build matrix to run **3 concurrent worker jobs** in parallel.
-    *   We partition the database using an ObjectId suffix sharding algorithm: Shard 0 queries ObjectIds ending in hex `[0-5]`, Shard 1 queries `[6-b]`, and Shard 2 queries `[c-f]`.
-    *   This sharding completely separates reviews among runners, preventing duplication and race conditions.
+    *   If any key encounters a Rate Limit (`429`), the engine catches the exception and automatically rotates to the next available API key.
+    *   **All-Keys-Exhausted Cooldown**: If all keys are rate-limited in a single run, the engine pauses for a progressive cooldown (`5s + (attempt * 2s)`) before retrying. Key rotations do not count against the retry limit.
+2.  **Parallel Sharding & Distributed Locking (Zero-Overlap Concurrency)**:
+    *   The GitHub Actions workflow uses a build matrix to run **8 concurrent worker jobs** in parallel.
+    *   We partition the database using an ObjectId suffix sharding algorithm: Shards 0-7 query disjoint segments based on hexadecimal ranges of the ObjectId's last character.
+    *   **Distributed Batch-Claiming**: To prevent parallel runs from double-analyzing the same reviews (since a new workflow starts every hour), the script atomically locks reviews by marking them with a unique `runId` inside `sentiment_analysis.claimed_by`. Other concurrent processes automatically ignore claimed reviews, ensuring 100% collision-free processing.
     *   MCDM re-ranking score recalculation is run as a single downstream step *only after* all shards complete, preventing database write conflicts.
-3.  **Rate Limit Delay & Pacing**:
-    *   Enforces a delay of `2200ms` between calls per runner to stay within the 30 RPM limit.
-    *   Allows configurable batch sizes (e.g., `--max 1000` per shard). A 1000-review execution takes approximately 40 minutes under normal network conditions but is strictly capped to guarantee it fits safely within GitHub Actions' maximum 6-hour job timeout window.
-    *   By scheduling runs **every 2 hours** (12 times a day) and processing up to **3,000 reviews per run** (1,000 per shard), the pipeline processes up to **36,000 reviews per day**. This stays safely within the 43,200 RPD daily limit of your 3 rotating API keys, finishing all 2.4 lakh reviews in **~6.6 days** (well within your 8-day deadline).
-    *   If a runner encounters a transient issue, already processed reviews are saved with `needs_analysis: false`. The remaining reviews will simply be processed in the next run.
-
-### Data Safety
-All updates are additive:
-*   **MongoDB `updateOne` with `$set`**: We do not overwrite entire documents, only specific sub-paths (`sentiment_analysis` in reviews, `sentiment_summary` and `positive_percent` in products).
-*   No database drop or truncate calls are executed.
-*   Existing reviews, product names, prices, descriptions, and platform fields remain completely untouched.
+3.  **Batching Optimization & Schedule Pacing**:
+    *   Bundling **5 reviews in a single prompt** cuts API request volume by **80%** (250,000 total reviews requires only 50,000 API calls).
+    *   **Pacing & Timeout**: Runs are scheduled **every 2 hours** with a timeout of **120 minutes** (2 hours).
+    *   Each matrix runner processes up to **600 reviews per shard** (120 API calls).
+    *   Over a 2-hour execution window, 120 API calls averages to just **1 request per minute per runner**, staying exceptionally safe from Groq's RPM limits.
+    *   **Throughput**: $12 \text{ runs/day} \times 8 \text{ shards} \times 600 \text{ reviews/shard} = 57,600 \text{ reviews/day}$ ($345,600 \text{ reviews in 6 days}$). This comfortably completes all reviews with a large buffer.

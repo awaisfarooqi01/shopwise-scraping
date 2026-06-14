@@ -4,6 +4,8 @@
  * Uses Groq API with Llama-3.1-8b-instant to analyze product reviews
  * for sentiment classification and fake review detection.
  *
+ * Handles reviews in batches of up to 5 per API call to optimize rate limits.
+ *
  * Follows Groq official docs: https://console.groq.com/docs/quickstart
  *
  * @module services/sentiment-analyzer
@@ -51,7 +53,7 @@ function rotateKey() {
 
 // ---------- System Prompt ----------
 
-const SYSTEM_PROMPT = `You are an expert AI prompt engineer and computational linguistics researcher specializing in opinion spam detection, fake review identification, and sentiment analysis systems for e-commerce platforms. Your task is to analyze user reviews and output structured JSON.
+const SYSTEM_PROMPT = `You are an expert AI prompt engineer and computational linguistics researcher specializing in opinion spam detection, fake review identification, and sentiment analysis systems for e-commerce platforms. Your task is to analyze a batch of user reviews and output a structured JSON object.
 
 ---
 
@@ -79,16 +81,28 @@ const SYSTEM_PROMPT = `You are an expert AI prompt engineer and computational li
 
 ---
 
+### Input Format:
+You will receive a JSON array of objects representing product reviews. Each object has:
+- "id": A unique integer identifier for the review in this batch.
+- "text": The review text.
+- "rating": Star rating (1 to 5).
+- "verified": Boolean indicating if the purchase was verified.
+
 ### Output JSON Format:
 Return ONLY a valid JSON object matching this structure:
 {
-  "sentiment": "positive" | "negative" | "neutral",
-  "score": <number from -1.0 to 1.0>,
-  "keywords": [<up to 5 key phrases from the review>],
-  "primary_negative_reason": "delivery" | "quality" | "packaging" | "customer_service" | "price" | "other" | null,
-  "is_likely_fake": true | false,
-  "fake_signals": ["promotional_spam" | "template_text" | "rating_mismatch" | "ai_generated_style" | "contact_solicitation"],
-  "analysis_reasoning": "<A concise explanation of the linguistic features or indicators observed in the review to justify the classification. For genuine reviews, state 'Genuine feedback showing experiential language' or 'Brief satisfaction rating'.>"
+  "results": [
+    {
+      "id": <integer, matching the input review id>,
+      "sentiment": "positive" | "negative" | "neutral",
+      "score": <number from -1.0 to 1.0>,
+      "keywords": [<up to 5 key phrases from the review>],
+      "primary_negative_reason": "delivery" | "quality" | "packaging" | "customer_service" | "price" | "other" | null,
+      "is_likely_fake": true | false,
+      "fake_signals": ["promotional_spam" | "template_text" | "rating_mismatch" | "ai_generated_style" | "contact_solicitation"],
+      "analysis_reasoning": "<A concise explanation of the linguistic features or indicators observed in the review to justify the classification. For genuine reviews, state 'Genuine feedback showing experiential language' or 'Brief satisfaction rating'.>"
+    }
+  ]
 }
 
 Rules for fields:
@@ -100,42 +114,23 @@ Rules for fields:
 - fake_signals: Return an array containing any matching labels from the list if is_likely_fake is true. Return an empty array [] if the review is classified as genuine.
 - analysis_reasoning: Provide a clear trace of evidence justifying the classification.`;
 
-// ---------- Analysis Function ----------
+// ---------- Analysis Functions ----------
 
 /**
- * Analyze a single review using Groq API.
- *
- * @param {Object} review - The review document
- * @param {string} review.text - Review text content
- * @param {number} review.rating - Rating (1-5)
- * @param {boolean} review.verified_purchase - Whether purchase is verified
- * @param {string} [review.reviewer_name] - Reviewer name
- * @returns {Promise<Object>} Parsed sentiment analysis result
+ * Perform batch request to Groq API with robust retries and key rotation.
  */
-async function analyzeReview(review) {
-  const client = getGroqClient();
-
-  const reviewText = (review.text || '').trim();
-  const rating = review.rating || 0;
-  const verified = review.verified_purchase || false;
-
-  // Skip reviews with no text — assign based on rating alone
-  if (!reviewText || reviewText.length < 2) {
-    return buildRatingOnlyResult(rating);
-  }
-
-  const userPrompt = `Analyze this product review:
-
-Review text: "${reviewText}"
-Rating: ${rating}/5
-Verified purchase: ${verified}
-
-Return ONLY the JSON object, nothing else.`;
-
+async function analyzeReviewsBatchWithRetry(validReviews) {
   let lastError = null;
+  let keysTriedInCurrentAttempt = 0;
+
+  const userPrompt = `Analyze this batch of product reviews:
+${JSON.stringify(validReviews.map(r => ({ id: r.id, text: r.text, rating: r.rating, verified: r.verified })), null, 2)}
+
+Return ONLY the JSON object matching the requested schema, nothing else.`;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
+      const client = getGroqClient();
       const chatCompletion = await client.chat.completions.create({
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
@@ -143,7 +138,7 @@ Return ONLY the JSON object, nothing else.`;
         ],
         model: GROQ_MODEL,
         temperature: 0.1,
-        max_tokens: 256,
+        max_tokens: 1024, // A batch of 5 reviews requires more tokens
         response_format: { type: 'json_object' },
       });
 
@@ -153,26 +148,43 @@ Return ONLY the JSON object, nothing else.`;
       }
 
       const parsed = JSON.parse(responseText);
-      return validateAndNormalize(parsed);
+      if (!parsed.results || !Array.isArray(parsed.results)) {
+        throw new SyntaxError('Response does not contain results array');
+      }
+      return parsed.results;
     } catch (error) {
       lastError = error;
 
-      // Rate limit hit — back off or rotate keys
+      // Rate limit hit (429)
       if (error?.status === 429) {
+        keysTriedInCurrentAttempt++;
+        
         if (rotateKey()) {
-          logger.warn(`Rate limit hit (429). Rotated keys, retrying immediately...`);
-          await sleep(500); // Small cooldown before retry
+          // If we have tried all keys in this attempt, do a longer progressive cooldown
+          if (keysTriedInCurrentAttempt >= GROQ_API_KEYS.length) {
+            const waitTime = 5000 + (attempt * 2000);
+            logger.warn(`All Groq keys rate limited. Cooldown wait for ${waitTime}ms before retry...`);
+            await sleep(waitTime);
+            keysTriedInCurrentAttempt = 0; // reset counter
+          } else {
+            // Cooldown after key rotation
+            logger.warn(`Rate limit hit (429). Rotated keys, retrying after 1500ms...`);
+            await sleep(1500);
+          }
+          attempt--; // Do not consume a retry attempt for key rotation
+          continue;
+        } else {
+          // Only one key is configured, wait standard backoff
+          const waitTime = DELAY_MS * attempt * 2;
+          logger.warn(`Rate limited by Groq, waiting ${waitTime}ms...`);
+          await sleep(waitTime);
           continue;
         }
-        const waitTime = DELAY_MS * attempt * 2;
-        logger.warn(`Rate limited by Groq (attempt ${attempt}/${MAX_RETRIES}), waiting ${waitTime}ms...`);
-        await sleep(waitTime);
-        continue;
       }
 
-      // JSON parse error — try to extract JSON from response
-      if (error instanceof SyntaxError) {
-        logger.warn(`JSON parse error on attempt ${attempt}, retrying...`);
+      // JSON parsing or syntax errors
+      if (error instanceof SyntaxError || error instanceof TypeError) {
+        logger.warn(`Response syntax error on attempt ${attempt}: ${error.message}. Retrying...`);
         await sleep(DELAY_MS);
         continue;
       }
@@ -189,11 +201,82 @@ Return ONLY the JSON object, nothing else.`;
     }
   }
 
-  // All retries failed — return fallback based on rating
-  logger.error('All retries exhausted for review, using rating fallback', {
-    error: lastError?.message,
+  throw lastError || new Error('All retries exhausted');
+}
+
+/**
+ * Analyze a batch of reviews.
+ * Separates empty/short text reviews to process them locally with rating fallback.
+ * Sends valid text reviews to the Groq API in a single batch call.
+ *
+ * @param {Array<Object>} reviewsBatch - List of review documents to analyze
+ * @returns {Promise<Array<Object>>} List of normalized analysis results aligned with input batch
+ */
+async function analyzeReviewBatch(reviewsBatch) {
+  if (!Array.isArray(reviewsBatch) || reviewsBatch.length === 0) {
+    return [];
+  }
+
+  // Pre-process and flag items requiring API call
+  const processedBatch = reviewsBatch.map((review, index) => {
+    const text = (review.text || '').trim();
+    const isValid = text.length >= 2;
+    return {
+      index,
+      review,
+      isValid,
+      text,
+      rating: review.rating || 0,
+      verified: review.verified_purchase || false
+    };
   });
-  return buildRatingOnlyResult(rating);
+
+  const validToAnalyze = processedBatch.filter(item => item.isValid);
+
+  const resultsMap = {};
+
+  if (validToAnalyze.length > 0) {
+    try {
+      const apiInput = validToAnalyze.map(item => ({
+        id: item.index,
+        text: item.text,
+        rating: item.rating,
+        verified: item.verified
+      }));
+
+      const apiResults = await analyzeReviewsBatchWithRetry(apiInput);
+
+      if (Array.isArray(apiResults)) {
+        for (const res of apiResults) {
+          if (res && typeof res === 'object' && 'id' in res) {
+            resultsMap[res.id] = validateAndNormalize(res);
+          }
+        }
+      }
+    } catch (err) {
+      logger.error('Failed to analyze batch of reviews using Groq API, falling back to rating-only analysis for this batch', {
+        error: err.message,
+        count: validToAnalyze.length
+      });
+      // Fallback is handled inside the mapper below (if index is missing in resultsMap)
+    }
+  }
+
+  // Build final results, ensuring exact order and fallback logic
+  const finalResults = processedBatch.map(item => {
+    if (item.isValid) {
+      const apiRes = resultsMap[item.index];
+      if (apiRes) {
+        return apiRes;
+      }
+      // Fallback for missing/failed API response item
+      return buildRatingOnlyResult(item.rating);
+    }
+    // Fallback for empty/short reviews
+    return buildRatingOnlyResult(item.rating);
+  });
+
+  return finalResults;
 }
 
 // ---------- Helpers ----------
@@ -312,7 +395,7 @@ function getDelayMs() {
 }
 
 module.exports = {
-  analyzeReview,
+  analyzeReviewBatch,
   getDelayMs,
   sleep,
   buildRatingOnlyResult,

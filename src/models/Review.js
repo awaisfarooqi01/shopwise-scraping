@@ -91,6 +91,10 @@ const reviewSchema = new mongoose.Schema(
         type: Boolean,
         default: true,
       },
+      claimed_by: {
+        type: String,
+        trim: true,
+      },
     },
     
     // Platform Metadata

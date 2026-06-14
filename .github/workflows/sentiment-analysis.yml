@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       max_reviews:
-        description: 'Max reviews to process per shard (0 for all, default 1000 to fit in 6hr timeout)'
+        description: 'Max reviews to process per shard (0 for all, default 600 to fit 2-hour schedule)'
         required: false
-        default: '1000'
+        default: '600'
         type: string
       reanalyze:
         description: 'Reanalyze already analyzed reviews'
@@ -36,13 +36,13 @@ concurrency:
 
 jobs:
   analyze:
-    name: 'Analysis Shard ${{ matrix.partition }}/3'
+    name: 'Analysis Shard ${{ matrix.partition }}/8'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        partition: [0, 1, 2] # 3 parallel shards running concurrently
-    timeout-minutes: 180
+        partition: [0, 1, 2, 3, 4, 5, 6, 7] # 8 parallel shards running concurrently
+    timeout-minutes: 120 # 2 hours max timeout (600 reviews in batches of 5 takes ~40-80 minutes)
 
     steps:
       - name: 📥 Checkout Repository
@@ -73,7 +73,7 @@ jobs:
           CMD="node scripts/run-sentiment-analysis.js"
           
           # Pass sharding parameters
-          CMD="$CMD --partition ${{ matrix.partition }} --total-partitions 3"
+          CMD="$CMD --partition ${{ matrix.partition }} --total-partitions 8"
           
           # Handle reanalyze flag
           if [ "${{ github.event.inputs.reanalyze }}" == "true" ]; then
@@ -91,7 +91,7 @@ jobs:
           else
             # Default limit per shard on scheduled runs
             if [ "${{ github.event_name }}" == "schedule" ]; then
-              CMD="$CMD --max 1000"
+              CMD="$CMD --max 600"
             fi
           fi
           

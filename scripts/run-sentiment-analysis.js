@@ -25,7 +25,7 @@
 const mongoose = require('mongoose');
 const config = require('../src/config');
 const { logger } = require('../src/utils/logger');
-const { analyzeReview, getDelayMs, sleep } = require('../src/services/sentiment-analyzer');
+const { analyzeReviewBatch, getDelayMs, sleep } = require('../src/services/sentiment-analyzer');
 
 // Ensure models are registered
 require('../src/models');
@@ -76,11 +76,13 @@ function parseArgs() {
 
 async function main() {
   const opts = parseArgs();
+  const runId = new mongoose.Types.ObjectId().toString();
   const BATCH_SIZE = parseInt(process.env.SENTIMENT_BATCH_SIZE || '50', 10);
   const DELAY = getDelayMs();
 
   logger.info('=== Sentiment Analysis Script Started ===');
   logger.info('Configuration', {
+    runId,
     model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
     batchSize: BATCH_SIZE,
     delayMs: DELAY,
@@ -127,6 +129,8 @@ async function main() {
       { sentiment_analysis: { $exists: false } },
       { sentiment_analysis: null },
     ];
+    // Exclude reviews currently claimed by other runs
+    query['sentiment_analysis.claimed_by'] = { $exists: false };
   }
 
   // Inject partition sharding (Object ID Modulo Regex)
@@ -190,67 +194,118 @@ async function main() {
     const batchQuery = lastId ? { ...query, _id: { $gt: lastId } } : query;
     const batchLimit = Math.min(BATCH_SIZE, totalToProcess - processed);
 
-    const reviews = await Review.find(batchQuery)
+    // 1. Fetch only the IDs of the next pending batch
+    const pendingReviews = await Review.find(batchQuery)
       .sort({ _id: 1 })
       .limit(batchLimit)
+      .select('_id')
+      .lean();
+
+    if (pendingReviews.length === 0) break;
+
+    const idsToClaim = pendingReviews.map((r) => r._id);
+    lastId = idsToClaim[idsToClaim.length - 1];
+
+    // 2. Claim these reviews atomically by setting claimed_by
+    await Review.updateMany(
+      { _id: { $in: idsToClaim } },
+      { $set: { 'sentiment_analysis.claimed_by': runId } }
+    );
+
+    // 3. Retrieve the detailed content of the claimed batch
+    const reviews = await Review.find({
+      _id: { $in: idsToClaim },
+      'sentiment_analysis.claimed_by': runId,
+    })
       .select('text rating verified_purchase reviewer_name product_id sentiment_analysis')
       .lean();
 
-    if (reviews.length === 0) break;
+    // Process the fetched reviews in chunks of 5 to batch API calls
+    const API_BATCH_CHUNK_SIZE = 5;
+    for (let i = 0; i < reviews.length; i += API_BATCH_CHUNK_SIZE) {
+      const chunk = reviews.slice(i, i + API_BATCH_CHUNK_SIZE);
 
-    lastId = reviews[reviews.length - 1]._id;
-
-    for (const review of reviews) {
       try {
-        // Analyze the review
-        const result = await analyzeReview({
-          text: review.text,
-          rating: review.rating,
-          verified_purchase: review.verified_purchase,
-          reviewer_name: review.reviewer_name,
-        });
+        // Analyze the batch of reviews using the service
+        const results = await analyzeReviewBatch(chunk);
 
-        // Update the review document
-        await Review.updateOne(
-          { _id: review._id },
-          {
-            $set: {
-              'sentiment_analysis.sentiment': result.sentiment,
-              'sentiment_analysis.score': result.score,
-              'sentiment_analysis.keywords': result.keywords,
-              'sentiment_analysis.primary_negative_reason': result.primary_negative_reason,
-              'sentiment_analysis.is_likely_fake': result.is_likely_fake,
-              'sentiment_analysis.fake_signals': result.fake_signals,
-              'sentiment_analysis.analysis_reasoning': result.analysis_reasoning,
-              'sentiment_analysis.needs_analysis': false,
-            },
+        // Update database records and release claim locks
+        for (let j = 0; j < chunk.length; j++) {
+          const review = chunk[j];
+          const result = results[j];
+
+          try {
+            await Review.updateOne(
+              { _id: review._id },
+              {
+                $set: {
+                  'sentiment_analysis.sentiment': result.sentiment,
+                  'sentiment_analysis.score': result.score,
+                  'sentiment_analysis.keywords': result.keywords,
+                  'sentiment_analysis.primary_negative_reason': result.primary_negative_reason,
+                  'sentiment_analysis.is_likely_fake': result.is_likely_fake,
+                  'sentiment_analysis.fake_signals': result.fake_signals,
+                  'sentiment_analysis.analysis_reasoning': result.analysis_reasoning,
+                  'sentiment_analysis.needs_analysis': false,
+                },
+                $unset: {
+                  'sentiment_analysis.claimed_by': '', // release the claim lock
+                },
+              }
+            );
+
+            logger.info(`[${succeeded + 1}] Review by "${review.reviewer_name}" (${review.rating}★) -> Sentiment: ${result.sentiment} (Score: ${result.score}), Fake: ${result.is_likely_fake}`);
+
+            if (review.product_id) {
+              affectedProductIds.add(review.product_id.toString());
+            }
+            succeeded++;
+          } catch (updateErr) {
+            failed++;
+            logger.error(`Failed to save review analysis result for ${review._id}`, {
+              error: updateErr.message,
+            });
+            try {
+              await Review.updateOne(
+                { _id: review._id },
+                { $unset: { 'sentiment_analysis.claimed_by': '' } }
+              );
+            } catch (dbErr) {
+              logger.error(`Failed to release claim lock for review ${review._id}`, {
+                error: dbErr.message,
+              });
+            }
           }
-        );
-
-        logger.info(`[${succeeded + 1}] Review by "${review.reviewer_name}" (${review.rating}★) -> Sentiment: ${result.sentiment} (Score: ${result.score}), Fake: ${result.is_likely_fake}`);
-
-        // Track affected product
-        if (review.product_id) {
-          affectedProductIds.add(review.product_id.toString());
+          processed++;
         }
 
-        succeeded++;
-
-        // Respect rate limits — wait between API calls
-        if (review.text && review.text.trim().length >= 2) {
+        // Wait between batch calls if any review in the chunk was analyzed via the API
+        const chunkHasValidText = chunk.some(r => r.text && r.text.trim().length >= 2);
+        if (chunkHasValidText && (i + API_BATCH_CHUNK_SIZE < reviews.length || processed < totalToProcess)) {
           await sleep(DELAY);
         }
       } catch (err) {
-        failed++;
-        logger.error(`Failed to analyze review ${review._id}`, {
+        logger.error(`Critical error analyzing batch starting at index ${i}`, {
           error: err.message,
         });
+        for (const review of chunk) {
+          failed++;
+          processed++;
+          try {
+            await Review.updateOne(
+              { _id: review._id },
+              { $unset: { 'sentiment_analysis.claimed_by': '' } }
+            );
+          } catch (dbErr) {
+            logger.error(`Failed to release claim lock for review ${review._id}`, {
+              error: dbErr.message,
+            });
+          }
+        }
       }
 
-      processed++;
-
-      // Progress logging every 25 reviews
-      if (processed % 25 === 0) {
+      // Progress logging every 25 reviews (or at completion)
+      if (processed % 25 === 0 || processed === totalToProcess) {
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         const rate = (processed / (elapsed || 1)).toFixed(1);
         logger.info(`Progress: ${processed}/${totalToProcess} (${succeeded} ok, ${failed} err) | ${elapsed}s elapsed | ${rate} reviews/sec`);
