@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       max_reviews:
-        description: 'Max reviews to process per shard (0 for all, default 600 to fit 2-hour schedule)'
+        description: 'Max reviews to process per shard (0 for all/unlimited, default 0)'
         required: false
-        default: '600'
+        default: '0'
         type: string
       reanalyze:
         description: 'Reanalyze already analyzed reviews'
@@ -42,7 +42,7 @@ jobs:
       fail-fast: false
       matrix:
         partition: [0, 1, 2, 3, 4, 5, 6, 7] # 8 parallel shards running concurrently
-    timeout-minutes: 120 # 2 hours max timeout (600 reviews in batches of 5 takes ~40-80 minutes)
+    timeout-minutes: 360 # 6 hours max timeout (processes as many reviews as possible up to 5.6 hours limit)
 
     steps:
       - name: 📥 Checkout Repository
@@ -68,6 +68,7 @@ jobs:
           SENTIMENT_BATCH_SIZE: 50
           SENTIMENT_DELAY_MS: 2200
           SENTIMENT_MAX_RETRIES: 3
+          SENTIMENT_MAX_TIME_MINUTES: 340
           NODE_ENV: production
         run: |
           CMD="node scripts/run-sentiment-analysis.js"
@@ -88,11 +89,6 @@ jobs:
           # Handle max reviews limit (per shard)
           if [ -n "${{ github.event.inputs.max_reviews }}" ] && [ "${{ github.event.inputs.max_reviews }}" != "0" ]; then
             CMD="$CMD --max ${{ github.event.inputs.max_reviews }}"
-          else
-            # Default limit per shard on scheduled runs
-            if [ "${{ github.event_name }}" == "schedule" ]; then
-              CMD="$CMD --max 600"
-            fi
           fi
           
           echo "Executing Sharded Run: $CMD"

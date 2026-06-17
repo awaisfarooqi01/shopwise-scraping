@@ -79,6 +79,8 @@ async function main() {
   const runId = new mongoose.Types.ObjectId().toString();
   const BATCH_SIZE = parseInt(process.env.SENTIMENT_BATCH_SIZE || '50', 10);
   const DELAY = getDelayMs();
+  const MAX_TIME_MINUTES = parseInt(process.env.SENTIMENT_MAX_TIME_MINUTES || '340', 10);
+  const maxTimeMs = MAX_TIME_MINUTES * 60 * 1000;
 
   logger.info('=== Sentiment Analysis Script Started ===');
   logger.info('Configuration', {
@@ -86,6 +88,7 @@ async function main() {
     model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
     batchSize: BATCH_SIZE,
     delayMs: DELAY,
+    maxTimeMinutes: MAX_TIME_MINUTES,
     reanalyze: opts.reanalyze,
     dryRun: opts.dryRun,
     maxReviews: opts.maxReviews,
@@ -191,6 +194,10 @@ async function main() {
   const startTime = Date.now();
 
   while (processed < totalToProcess) {
+    if (maxTimeMs > 0 && (Date.now() - startTime) > maxTimeMs) {
+      logger.warn(`Approaching execution time limit (${MAX_TIME_MINUTES} mins). Exiting loop gracefully to run aggregation.`);
+      break;
+    }
     const batchQuery = lastId ? { ...query, _id: { $gt: lastId } } : query;
     const batchLimit = Math.min(BATCH_SIZE, totalToProcess - processed);
 
