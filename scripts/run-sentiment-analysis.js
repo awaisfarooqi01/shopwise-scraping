@@ -390,6 +390,9 @@ async function aggregateProductSentiment(productId) {
         fake_count: {
           $sum: { $cond: [{ $eq: ['$sentiment_analysis.is_likely_fake', true] }, 1, 0] },
         },
+        verified_purchase_count: {
+          $sum: { $cond: [{ $eq: ['$verified_purchase', true] }, 1, 0] },
+        },
         average_sentiment_score: { $avg: '$sentiment_analysis.score' },
         average_rating: { $avg: '$rating' },
         total_reviews: { $sum: 1 },
@@ -447,6 +450,20 @@ async function aggregateProductSentiment(productId) {
       ? Math.round((result.positive_count / result.total_analyzed) * 100)
       : 0;
 
+  // Calculate fake review percent
+  const fakePercent =
+    result.total_analyzed > 0
+      ? Math.round((result.fake_count / result.total_analyzed) * 100)
+      : 0;
+
+  // Calculate seller trust score based on verified purchases, authenticity, and rating
+  const verifiedRate = result.verified_purchase_count / result.total_analyzed;
+  const authenticityRate = 1 - (result.fake_count / result.total_analyzed);
+  const ratingRate = (result.average_rating || 0) / 5;
+  const sellerTrustScore = result.total_analyzed > 0
+    ? Math.round((0.4 * verifiedRate + 0.4 * authenticityRate + 0.2 * ratingRate) * 100)
+    : 0;
+
   // Update product
   await Product.updateOne(
     { _id: productId },
@@ -462,13 +479,15 @@ async function aggregateProductSentiment(productId) {
         'sentiment_summary.top_complaints': topComplaints,
         'sentiment_summary.last_analyzed_at': new Date(),
         positive_percent: positivePercent,
+        fake_percent: fakePercent,
+        seller_trust_score: sellerTrustScore,
         average_rating: Math.round((result.average_rating || 0) * 100) / 100,
         review_count: result.total_reviews,
       },
     }
   );
 
-  logger.debug(`Updated product ${productId}: ${positivePercent}% positive, ${result.fake_count} fake, ${result.total_analyzed} analyzed`);
+  logger.debug(`Updated product ${productId}: ${positivePercent}% positive, ${fakePercent}% fake, trust=${sellerTrustScore}%, ${result.total_analyzed} analyzed`);
 }
 
 // ---------- Run ----------

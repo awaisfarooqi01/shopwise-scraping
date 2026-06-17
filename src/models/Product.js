@@ -126,6 +126,18 @@ const productSchema = new mongoose.Schema(
       min: 0,
       max: 100,
     },
+    fake_percent: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+    seller_trust_score: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
     sale_percentage: {
       type: Number,
       min: 0,

@@ -66,7 +66,7 @@ const reviewSchema = new mongoose.Schema(
     sentiment_analysis: {
       sentiment: {
         type: String,
-        enum: ['positive', 'negative', 'neutral', 'mixed'],
+        enum: ['positive', 'negative', 'neutral'],
       },
       score: {
         type: Number,
@@ -76,7 +76,7 @@ const reviewSchema = new mongoose.Schema(
       keywords: [String],
       primary_negative_reason: {
         type: String,
-        trim: true,
+        enum: ['delivery', 'quality', 'packaging', 'customer_service', 'price', 'other'],
       },
       is_likely_fake: {
         type: Boolean,

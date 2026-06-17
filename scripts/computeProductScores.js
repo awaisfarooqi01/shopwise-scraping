@@ -182,14 +182,22 @@ function computeTrust(product) {
   const positivePercent = positiveRaw >= 0 ? positiveRaw : 50;
   const condition = product.condition;
 
-  const platformTrustScore = getPlatformTrustScore();
+  // Use calculated seller_trust_score if available (defaults to 70% if not calculated yet)
+  const sellerTrust = typeof product.seller_trust_score === 'number' ? product.seller_trust_score : 70;
+  const sellerTrustRate = sellerTrust / 100;
 
-  const reviewCountComponent = Math.min(reviewCount / 100, 1) * 0.4;
+  const reviewCountComponent = Math.min(reviewCount / 100, 1) * 0.3;
   const conditionComponent = (condition === 'new' ? 1 : 0.6) * 0.2;
   const positiveComponent = (positivePercent / 100) * 0.2;
-  const platformComponent = platformTrustScore * 0.2;
+  const sellerTrustComponent = sellerTrustRate * 0.3;
 
-  return reviewCountComponent + conditionComponent + positiveComponent + platformComponent;
+  const baseTrust = reviewCountComponent + conditionComponent + positiveComponent + sellerTrustComponent;
+
+  // Apply penalty based on fake review percentage (e.g. 50% fake reviews = 50% trust drop)
+  const fakePercent = typeof product.fake_percent === 'number' ? product.fake_percent : 0;
+  const authenticityRate = 1 - (fakePercent / 100);
+
+  return clamp(baseTrust * authenticityRate, 0, 1);
 }
 
 /**
@@ -307,6 +315,8 @@ async function main() {
             'average_rating',
             'review_count',
             'positive_percent',
+            'fake_percent',
+            'seller_trust_score',
             'condition',
             'platform_name',
             'availability',
